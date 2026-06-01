@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Costing Report (FIFO vs Weighted Average)</h1>
+
+<div class="info-box" style="background: #e7f3ff; padding: 15px; border-radius: 10px; margin-bottom: 20px;">
+    <p><strong>FIFO (First-In-First-Out):</strong> Assumes oldest inventory items are sold first</p>
+    <p><strong>Weighted Average:</strong> Average cost of all units available for sale</p>
+</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>Product</th>
+            <th>Total Quantity</th>
+            <th>FIFO Cost/Unit</th>
+            <th>Weighted Avg Cost/Unit</th>
+            <th>FIFO Stock Value</th>
+            <th>Weighted Avg Stock Value</th>
+            <th>Difference</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in costing_data %}
+        <tr>
+            <td>{{ item.product.name }}<br>
+            <small>{{ item.product.sku }}</small>
+            <td>
+            <td>{{ "%.2f"|format(item.total_quantity) }}</td>
+            <td>${{ "%.2f"|format(item.fifo_cost) }}</td>
+            <td>${{ "%.2f"|format(item.weighted_avg_cost) }}</td>
+            <td>${{ "%.2f"|format(item.fifo_value) }}</td>
+            <td>${{ "%.2f"|format(item.weighted_value) }}</td>
+            <td>${{ "%.2f"|format(item.fifo_value - item.weighted_value) }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<div style="margin-top: 20px; background: white; padding: 20px; border-radius: 10px;">
+    <h3>Methodology Explanation</h3>
+    <p><strong>FIFO Value:</strong> Calculated by using the earliest purchase prices for remaining stock</p>
+    <p><strong>Weighted Average Value:</strong> Total cost of all purchases divided by total quantity purchased, multiplied by current stock</p>
+</div>
+{% endblock %}

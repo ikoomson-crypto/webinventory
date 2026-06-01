@@ -1,0 +1,249 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Sales Transactions</h1>
+    <div style="display: flex; gap: 10px;">
+        <button onclick="showExportModal()" class="btn-primary" style="background: #28a745;">📥 Export to Excel</button>
+        {% if session.role == 'admin' %}
+        <button onclick="showBulkImportModal()" class="btn-primary" style="background: #17a2b8;">📤 Bulk Import Sales</button>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Export Modal with Date Filter -->
+<div id="exportModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 400px; width: 90%;">
+        <h3>Export Sales Data</h3>
+        <form method="GET" action="{{ url_for('export_sales') }}">
+            <div class="form-group">
+                <label>Start Date (Optional)</label>
+                <input type="date" name="start_date">
+            </div>
+            <div class="form-group">
+                <label>End Date (Optional)</label>
+                <input type="date" name="end_date">
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="submit">Export</button>
+                <button type="button" onclick="closeExportModal()" class="btn-danger">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Bulk Import Modal (Admin Only) -->
+{% if session.role == 'admin' %}
+<div id="bulkImportModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;">
+        <h3>Bulk Import Sales</h3>
+        <form method="POST" action="{{ url_for('import_sales') }}" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>Select Excel File</label>
+                <input type="file" name="file" accept=".xlsx,.xls" required>
+                <small style="color: #666; display: block; margin-top: 5px;">
+                    File should have columns: Product SKU, Customer Name, Quantity, Selling Price, Store Source, Sale Date (optional), Receipt No (optional), Discount % (optional), Notes (optional)
+                </small>
+            </div>
+
+            <div style="background: #e7f3ff; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h4 style="margin-bottom: 10px;">📋 Instructions:</h4>
+                <ul style="margin-left: 20px; color: #666; font-size: 13px;">
+                    <li>Product SKU must match existing products in the system</li>
+                    <li>Customer Name must match existing customers</li>
+                    <li>Store Source must be "main_store" or "sales_store"</li>
+                    <li>System will check stock availability before importing</li>
+                    <li>Quantity and Selling Price must be numeric values</li>
+                    <li>Discount % is optional (0-100)</li>
+                </ul>
+            </div>
+
+            <div style="background: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h4 style="margin-bottom: 10px; color: #856404;">⚠️ Important Notes:</h4>
+                <ul style="margin-left: 20px; color: #856404; font-size: 13px;">
+                    <li>Stock levels will be automatically reduced</li>
+                    <li>Ensure sufficient stock before importing</li>
+                    <li>Import is atomic - errors won't affect successful rows</li>
+                    <li>Admin only feature for security</li>
+                </ul>
+            </div>
+
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="submit">Import Sales</button>
+                <button type="button" onclick="closeBulkImportModal()" class="btn-danger">Cancel</button>
+                <a href="{{ url_for('download_sales_template') }}" class="btn-primary" style="background: #28a745; text-decoration: none; display: inline-flex; align-items: center;">📥 Download Template</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<!-- Sales Form -->
+<div class="form-container">
+    <h3>Record New Sale</h3>
+    <form method="POST" action="{{ url_for('add_sale') }}">
+        <div class="form-group">
+            <label>Product</label>
+            <select name="product_id" required>
+                <option value="">Select Product</option>
+                {% for product in products %}
+                <option value="{{ product.id }}">
+                    {{ product.name }} ({{ product.sku }}) - Price: {{ currency_symbol }}{{ product.unit_price|round(2)|format_number }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Customer</label>
+            <select name="customer_id" required>
+                <option value="">Select Customer</option>
+                {% for customer in customers %}
+                <option value="{{ customer.id }}">{{ customer.name }} - {{ customer.telephone }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Quantity</label>
+            <input type="number" step="0.01" name="quantity" required>
+        </div>
+        <div class="form-group">
+            <label>Selling Price ({{ currency_symbol }})</label>
+            <input type="number" step="0.01" name="selling_price" required>
+        </div>
+        <div class="form-group">
+            <label>Source Store</label>
+            <select name="source" required>
+                <option value="main_store">Main Store</option>
+                <option value="sales_store">Sales Store</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Receipt No (Optional)</label>
+            <input type="text" name="receipt_no" placeholder="e.g., INV-001">
+        </div>
+        <div class="form-group">
+            <label>Discount (%)</label>
+            <input type="number" step="0.01" name="discount" value="0">
+        </div>
+        <div class="form-group">
+            <label>Notes</label>
+            <textarea name="notes" rows="2"></textarea>
+        </div>
+        <button type="submit">Record Sale</button>
+    </form>
+</div>
+
+<!-- Recent Sales List -->
+<h2>Recent Sales</h2>
+<div style="overflow-x: auto;">
+    <table class="sales-table">
+        <thead>
+            <tr style="background: #2c3e50; color: white;">
+                <th>Date</th>
+                <th>Receipt #</th>
+                <th>Product</th>
+                <th>Customer</th>
+                <th class="text-right">Quantity</th>
+                <th class="text-right">Unit Price</th>
+                <th class="text-right">Discount</th>
+                <th class="text-right">Total</th>
+                <th>Store</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for sale in sales %}
+            <tr>
+                <td>{{ sale.sale_date.strftime('%Y-%m-%d') }}</td>
+                <td>{{ sale.receipt_no or '-' }}</td>
+                <td>{{ sale.product.name }}</td>
+                <td>{{ sale.customer.name }}</td>
+                <td class="text-right">{{ sale.quantity|format_number }}</td>
+                <td class="text-right">{{ currency_symbol }}{{ sale.selling_price|round(2)|format_number }}</td>
+                <td class="text-right">{{ sale.discount|round(1) if sale.discount else '0' }}%</td>
+                <td class="text-right"><strong>{{ currency_symbol }}{{ sale.total_amount|round(2)|format_number }}</strong></td>
+                <td>{{ 'Main Store' if sale.source == 'main_store' else 'Sales Store' }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="9" style="text-align: center; color: #666; padding: 40px;">No sales recorded yet</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        {% if sales %}
+        <tfoot style="background: #f8f9fa; font-weight: bold;">
+            <tr>
+                <td colspan="4"><strong>TOTAL</strong></td>
+                <td class="text-right"><strong>{{ sales|sum(attribute='quantity')|format_number }}</strong></td>
+                <td colspan="2"></td>
+                <td class="text-right"><strong>{{ currency_symbol }}{{ sales|sum(attribute='total_amount')|round(2)|format_number }}</strong></td>
+                <td></td>
+            </tr>
+        </tfoot>
+        {% endif %}
+    </table>
+</div>
+
+<style>
+    .sales-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .sales-table th,
+    .sales-table td {
+        padding: 12px;
+        border-bottom: 1px solid #dee2e6;
+        vertical-align: middle;
+    }
+
+    .sales-table tbody tr:hover {
+        background: #f5f5f5;
+    }
+
+    .text-right {
+        text-align: right;
+    }
+
+    @media (max-width: 768px) {
+        .sales-table {
+            font-size: 12px;
+        }
+
+        .sales-table th,
+        .sales-table td {
+            padding: 8px;
+        }
+    }
+</style>
+
+<script>
+function showExportModal() {
+    document.getElementById('exportModal').style.display = 'flex';
+}
+
+function closeExportModal() {
+    document.getElementById('exportModal').style.display = 'none';
+}
+
+function showBulkImportModal() {
+    document.getElementById('bulkImportModal').style.display = 'flex';
+}
+
+function closeBulkImportModal() {
+    document.getElementById('bulkImportModal').style.display = 'none';
+}
+
+// Close modals when clicking outside
+window.onclick = function(event) {
+    const exportModal = document.getElementById('exportModal');
+    const bulkModal = document.getElementById('bulkImportModal');
+
+    if (event.target == exportModal) {
+        exportModal.style.display = 'none';
+    }
+    if (event.target == bulkModal) {
+        bulkModal.style.display = 'none';
+    }
+}
+</script>
+{% endblock %}

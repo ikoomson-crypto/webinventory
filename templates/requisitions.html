@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Internal Requisitions</h1>
+    <div style="display: flex; gap: 10px;">
+        <a href="{{ url_for('new_requisition') }}" class="btn-primary" style="background: #28a745;">➕ New Requisition</a>
+    </div>
+</div>
+
+<div style="overflow-x: auto;">
+    <table class="requisitions-table">
+        <thead>
+            <tr style="background: #2c3e50; color: white;">
+                <th>Requisition #</th>
+                <th>Date</th>
+                <th>Department</th>
+                <th>Requested By</th>
+                <th>Items</th>
+                <th>Status</th>
+                <th>Issue Date</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for req in requisitions %}
+            <tr>
+                <td><strong>{{ req.requisition_no }}</strong></td>
+                <td>{{ req.requisition_date.strftime('%Y-%m-%d') }}</td>
+                <td>{{ req.department }}</td>
+                <td>{{ req.requested_by }}</td>
+                <td class="text-center">{{ req.items|length }}</td>
+                <td>
+                {% if req.status == 'pending' %}
+                <span class="status-badge status-pending">⏳ Pending</span>
+                {% elif req.status == 'approved' %}
+                <span class="status-badge status-approved">✓ Approved</span>
+                {% elif req.status == 'issued' %}
+                <span class="status-badge status-issued">✓ Issued</span>
+                {% elif req.status == 'rejected' %}
+                <span class="status-badge status-rejected">✗ Rejected</span>
+                {% elif req.status == 'cancelled' %}
+                <span class="status-badge status-cancelled">✗ Cancelled</span>
+                {% endif %}
+               </td>
+                <td>{{ req.issue_date.strftime('%Y-%m-%d') if req.issue_date else '-' }}</td>
+                <td>
+                    <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                        <a href="{{ url_for('view_requisition', id=req.id) }}" class="btn-small btn-view">👁️ View</a>
+                        <a href="{{ url_for('print_requisition', id=req.id) }}" class="btn-small btn-print" target="_blank">🖨️ Print</a>
+                        {% if req.status == 'pending' %}
+                        <form method="POST" action="{{ url_for('issue_requisition', id=req.id) }}" style="display: inline;">
+                            <button type="submit" class="btn-small btn-issue" onclick="return confirm('Issue these items? Stock will be deducted from Main Store.')">✓ Issue</button>
+                        </form>
+                        <a href="{{ url_for('cancel_requisition', id=req.id) }}" class="btn-small btn-cancel" onclick="return confirm('Cancel this requisition?')">✗ Cancel</a>
+                        {% endif %}
+                        {% if session.role == 'admin' %}
+                        <a href="{{ url_for('delete_requisition', id=req.id) }}" class="btn-small btn-delete" onclick="return confirm('Delete this requisition? This action cannot be undone.')">🗑️ Delete</a>
+                        {% endif %}
+                    </div>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8" style="text-align: center; padding: 40px; color: #666;">No requisitions found</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<style>
+    .requisitions-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .requisitions-table th,
+    .requisitions-table td {
+        padding: 12px;
+        border-bottom: 1px solid #dee2e6;
+        vertical-align: middle;
+    }
+
+    .requisitions-table tbody tr:hover {
+        background: #f8f9fa;
+    }
+
+    .text-center {
+        text-align: center;
+    }
+
+    .status-badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 20px;
+        font-size: 12px;
+        font-weight: 600;
+    }
+
+    .status-pending {
+        background: #fff3cd;
+        color: #856404;
+    }
+
+    .status-issued {
+        background: #d4edda;
+        color: #155724;
+    }
+
+    .status-cancelled {
+        background: #f8d7da;
+        color: #721c24;
+    }
+
+    .btn-small {
+        padding: 4px 8px;
+        font-size: 11px;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        text-decoration: none;
+        display: inline-block;
+        margin: 2px;
+    }
+
+    .btn-view {
+        background: #17a2b8;
+        color: white;
+    }
+
+    .btn-print {
+        background: #6c757d;
+        color: white;
+    }
+
+    .btn-issue {
+        background: #28a745;
+        color: white;
+    }
+
+    .btn-cancel {
+        background: #ffc107;
+        color: #333;
+    }
+
+    .btn-delete {
+        background: #dc3545;
+        color: white;
+    }
+
+    button.btn-small {
+        font-family: inherit;
+    }
+
+    @media (max-width: 768px) {
+        .requisitions-table {
+            font-size: 12px;
+        }
+
+        .btn-small {
+            padding: 3px 5px;
+            font-size: 10px;
+        }
+    }
+</style>
+{% endblock %}

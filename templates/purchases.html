@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Purchase Orders</h1>
+    <div style="display: flex; gap: 10px;">
+        <a href="{{ url_for('export_purchases') }}" class="btn-primary" style="background: #28a745;">📥 Export to Excel</a>
+        {% if session.role == 'admin' %}
+        <button onclick="showBulkImportModal()" class="btn-primary" style="background: #17a2b8;">📤 Bulk Import Purchases</button>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Bulk Import Modal (Admin Only) -->
+{% if session.role == 'admin' %}
+<div id="bulkImportModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;">
+        <h3>Bulk Import Purchases</h3>
+        <form method="POST" action="{{ url_for('import_purchases') }}" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>Select Excel File</label>
+                <input type="file" name="file" accept=".xlsx,.xls" required>
+                <small style="color: #666; display: block; margin-top: 5px;">
+                    File should have columns: Product SKU, Supplier Name, Quantity, Cost Price, Purchase Date (optional), Reference No (optional), Notes (optional)
+                </small>
+            </div>
+
+            <div style="background: #e7f3ff; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                <h4 style="margin-bottom: 10px;">📋 Instructions:</h4>
+                <ul style="margin-left: 20px; color: #666; font-size: 13px;">
+                    <li>Product SKU must match existing products in the system</li>
+                    <li>Supplier Name must match existing suppliers</li>
+                    <li>Quantity and Cost Price must be numeric values</li>
+                    <li>Purchase Date format: YYYY-MM-DD</li>
+                </ul>
+            </div>
+
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="submit">Import Purchases</button>
+                <button type="button" onclick="closeBulkImportModal()" class="btn-danger">Cancel</button>
+                <button type="button" onclick="downloadPurchaseTemplate()" class="btn-primary" style="background: #28a745;">📥 Download Template</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<!-- Multiple Items Purchase Form (Only this is shown) -->
+<div class="form-container">
+    <h3>New Purchase Order</h3>
+
+    <form method="POST" action="{{ url_for('add_purchase_bulk') }}" id="bulkPurchaseForm">
+        <div class="form-group">
+            <label>Supplier <span style="color: red;">*</span></label>
+            <select name="supplier_id" required>
+                <option value="">Select Supplier</option>
+                {% for supplier in suppliers %}
+                <option value="{{ supplier.id }}">{{ supplier.name }} - {{ supplier.telephone }}</option>
+                {% endfor %}
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Purchase Date</label>
+            <input type="date" name="purchase_date" value="{{ now.strftime('%Y-%m-%d') }}" required>
+        </div>
+
+        <div class="form-group">
+            <label>Invoice/Reference Number</label>
+            <input type="text" name="reference_no" placeholder="e.g., PO-001, INV-2024-001">
+        </div>
+
+        <h4 style="margin: 20px 0 10px 0;">Purchase Items</h4>
+        <div id="purchaseItems">
+            <div class="item-row">
+                <div style="display: grid; grid-template-columns: 3fr 1fr 1fr 1fr 0.5fr; gap: 10px; align-items: center;">
+                    <div class="form-group">
+                        <label style="font-size: 12px;">Product</label>
+                        <select name="product_id[]" class="product-select" required onchange="autoUpdatePrice(this)">
+                            <option value="">Select Product</option>
+                            {% for product in products %}
+                            <option value="{{ product.id }}" data-price="{{ product.unit_price }}">
+                                {{ product.name }} ({{ product.sku }}) - Current Stock: {{ product.current_quantity_main|format_number }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label style="font-size: 12px;">Quantity</label>
+                        <input type="number" step="0.01" name="quantity[]" class="quantity" required onchange="calculateItemTotal(this)">
+                    </div>
+                    <div class="form-group">
+                        <label style="font-size: 12px;">Cost Price ({{ currency_symbol }})</label>
+                        <input type="number" step="0.01" name="cost_price[]" class="cost-price" required onchange="calculateItemTotal(this)">
+                    </div>
+                    <div class="form-group">
+                        <label style="font-size: 12px;">Total ({{ currency_symbol }})</label>
+                        <input type="text" class="item-total" readonly style="background: #f8f9fa; font-weight: bold;">
+                    </div>
+                    <div>
+                        <button type="button" onclick="removeItem(this)" class="btn-danger" style="margin-top: 22px;">✗</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <button type="button" onclick="addPurchaseItem()" style="background: #28a745; margin: 10px 0;">+ Add Another Item</button>
+
+        <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                <strong>Subtotal:</strong>
+                <span id="subtotal">{{ currency_symbol }}0.00</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                <strong>Tax (%):</strong>
+                <div style="display: flex; gap: 10px;">
+                    <input type="number" step="0.01" name="tax_rate" id="tax_rate" value="0" style="width: 100px;" onchange="calculateGrandTotal()">
+                    <span>%</span>
+                </div>
+            </div>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                <strong>Tax Amount:</strong>
+                <span id="tax_amount">{{ currency_symbol }}0.00</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; font-size: 20px; font-weight: bold; border-top: 2px solid #dee2e6; padding-top: 10px;">
+                <strong>Grand Total:</strong>
+                <strong id="grandTotal">{{ currency_symbol }}0.00</strong>
+            </div>
+            <div class="form-group" style="margin-top: 15px;">
+                <label>Notes</label>
+                <textarea name="notes" rows="2" placeholder="Additional notes for this purchase order"></textarea>
+            </div>
+        </div>
+
+        <button type="submit" style="margin-top: 20px;">Submit Purchase Order</button>
+    </form>
+</div>
+
+<!-- Recent Purchases List -->
+<h2>Recent Purchases</h2>
+<div style="overflow-x: auto;">
+    <table class="purchases-table">
+        <thead>
+            <tr style="background: #2c3e50; color: white;">
+                <th>Date</th>
+                <th>Reference #</th>
+                <th>Product</th>
+                <th>Supplier</th>
+                <th class="text-right">Quantity</th>
+                <th class="text-right">Cost Price</th>
+                <th class="text-right">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for purchase in purchases %}
+            <tr>
+                <td>{{ purchase.purchase_date.strftime('%Y-%m-%d') }}</td>
+                <td>{{ purchase.reference_no or '-' }}</td>
+                <td>{{ purchase.product.name }} ({{ purchase.product.sku }})</small></td>
+                <td>{{ purchase.supplier.name }}</td>
+                <td class="text-right">{{ purchase.quantity|format_number }}</td>
+                <td class="text-right">{{ currency_symbol }}{{ purchase.cost_price|round(2)|format_number }}</td>
+                <td class="text-right"><strong>{{ currency_symbol }}{{ purchase.total_cost|round(2)|format_number }}</strong></td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="7" style="text-align: center; padding: 40px;">No purchases recorded yet</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        {% if purchases %}
+        <tfoot style="background: #f8f9fa; font-weight: bold;">
+            <tr>
+                <td colspan="3"><strong>TOTAL</strong></td>
+                <td class="text-right"><strong>{{ purchases|sum(attribute='quantity')|format_number }}</strong></td>
+                <td colspan="2"></td>
+                <td class="text-right"><strong>{{ currency_symbol }}{{ purchases|sum(attribute='total_cost')|round(2)|format_number }}</strong></td>
+            </tr>
+        </tfoot>
+        {% endif %}
+    </table>
+</div>
+
+<style>
+    .purchases-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .purchases-table th,
+    .purchases-table td {
+        padding: 12px;
+        border-bottom: 1px solid #dee2e6;
+        vertical-align: middle;
+    }
+
+    .purchases-table tbody tr:hover {
+        background: #f5f5f5;
+    }
+
+    .item-row {
+        background: #f8f9fa;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+        border: 1px solid #dee2e6;
+    }
+
+    .text-right {
+        text-align: right;
+    }
+
+    @media (max-width: 768px) {
+        .purchases-table {
+            font-size: 12px;
+        }
+
+        .purchases-table th,
+        .purchases-table td {
+            padding: 8px;
+        }
+
+        .item-row div {
+            grid-template-columns: 1fr !important;
+            gap: 10px !important;
+        }
+
+        .item-row button {
+            margin-top: 0 !important;
+        }
+    }
+</style>
+
+<script>
+let currencySymbol = '{{ currency_symbol }}';
+
+function autoUpdatePrice(select) {
+    const selectedOption = select.options[select.selectedIndex];
+    if (selectedOption.value) {
+        const price = parseFloat(selectedOption.dataset.price) || 0;
+        const row = select.closest('.item-row');
+        const priceInput = row.querySelector('.cost-price');
+
+        if (priceInput && price === 0) {
+            // Only auto-populate if price is 0, otherwise let user enter
+            priceInput.placeholder = 'Enter cost price';
+        }
+        // Don't auto-populate cost price - let user enter it manually
+    }
+}
+
+function addPurchaseItem() {
+    const container = document.getElementById('purchaseItems');
+    const template = document.querySelector('#purchaseItems .item-row').cloneNode(true);
+
+    // Clear input values
+    template.querySelector('.product-select').value = '';
+    template.querySelector('.quantity').value = '';
+    template.querySelector('.cost-price').value = '';
+    template.querySelector('.item-total').value = '';
+
+    // Add remove button functionality
+    const removeBtn = template.querySelector('button');
+    removeBtn.onclick = function() {
+        const container = document.getElementById('purchaseItems');
+        if (container.children.length > 1) {
+            this.closest('.item-row').remove();
+            calculateTotal();
+            calculateGrandTotal();
+        } else {
+            alert('At least one item is required');
+        }
+    };
+
+    container.appendChild(template);
+}
+
+function removeItem(btn) {
+    const container = document.getElementById('purchaseItems');
+    if (container.children.length > 1) {
+        btn.closest('.item-row').remove();
+        calculateTotal();
+        calculateGrandTotal();
+    } else {
+        alert('At least one item is required');
+    }
+}
+
+function calculateItemTotal(input) {
+    const row = input.closest('.item-row');
+    const quantity = parseFloat(row.querySelector('.quantity').value) || 0;
+    const costPrice = parseFloat(row.querySelector('.cost-price').value) || 0;
+    const total = quantity * costPrice;
+
+    const totalInput = row.querySelector('.item-total');
+    totalInput.value = total.toFixed(2);
+
+    calculateTotal();
+    calculateGrandTotal();
+}
+
+function calculateTotal() {
+    let subtotal = 0;
+    document.querySelectorAll('.item-total').forEach(totalInput => {
+        subtotal += parseFloat(totalInput.value) || 0;
+    });
+    document.getElementById('subtotal').innerHTML = currencySymbol + subtotal.toFixed(2);
+    return subtotal;
+}
+
+function calculateGrandTotal() {
+    const subtotal = calculateTotal();
+    const taxPercent = parseFloat(document.getElementById('tax_rate').value) || 0;
+
+    const taxAmount = subtotal * (taxPercent / 100);
+    const grandTotal = subtotal + taxAmount;
+
+    document.getElementById('tax_amount').innerHTML = currencySymbol + taxAmount.toFixed(2);
+    document.getElementById('grandTotal').innerHTML = currencySymbol + grandTotal.toFixed(2);
+}
+
+// Event listeners
+document.getElementById('tax_rate')?.addEventListener('input', calculateGrandTotal);
+
+// Modal functions
+function showBulkImportModal() {
+    document.getElementById('bulkImportModal').style.display = 'flex';
+}
+
+function closeBulkImportModal() {
+    document.getElementById('bulkImportModal').style.display = 'none';
+}
+
+function downloadPurchaseTemplate() {
+    window.location.href = "{{ url_for('download_purchase_template') }}";
+}
+
+// Close modals when clicking outside
+window.onclick = function(event) {
+    const bulkModal = document.getElementById('bulkImportModal');
+    if (event.target == bulkModal) {
+        bulkModal.style.display = 'none';
+    }
+}
+
+// Form validation
+document.getElementById('bulkPurchaseForm')?.addEventListener('submit', function(e) {
+    const items = document.querySelectorAll('.item-row');
+    let hasItems = false;
+
+    items.forEach(item => {
+        const product = item.querySelector('.product-select').value;
+        const quantity = item.querySelector('.quantity').value;
+        const costPrice = item.querySelector('.cost-price').value;
+
+        if (product && quantity && costPrice && parseFloat(quantity) > 0 && parseFloat(costPrice) >= 0) {
+            hasItems = true;
+        }
+    });
+
+    if (!hasItems) {
+        e.preventDefault();
+        alert('Please add at least one item to the purchase order');
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,310 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Store Movements</h1>
+</div>
+
+<!-- Multiple Items Movement Form -->
+<div class="form-container">
+    <h3>Transfer Stock Between Stores</h3>
+
+    <form method="POST" action="{{ url_for('add_movement_bulk') }}" id="bulkMovementForm">
+        <div class="form-group">
+            <label>Movement Date</label>
+            <input type="date" name="movement_date" value="{{ now.strftime('%Y-%m-%d') }}" required>
+        </div>
+
+        <div class="form-group">
+            <label>Reference/Order # (Optional)</label>
+            <input type="text" name="reference" placeholder="e.g., TRANS-001, STOCK-2024-001">
+        </div>
+
+        <h4 style="margin: 20px 0 10px 0;">Items to Transfer</h4>
+        <div id="movementItems">
+            <div class="item-row">
+                <div style="display: grid; grid-template-columns: 3fr 1fr 1fr 1fr 0.5fr; gap: 10px; align-items: center;">
+                    <div class="form-group">
+                        <label style="font-size: 12px;">Product</label>
+                        <select name="product_id[]" class="product-select" required onchange="checkMovementStock(this)">
+                            <option value="">Select Product</option>
+                            {% for product in products %}
+                            <option value="{{ product.id }}"
+                                    data-main-stock="{{ product.current_quantity_main }}"
+                                    data-sales-stock="{{ product.current_quantity_sales }}">
+                                {% if product.sales_description %}
+                                    {{ product.sales_description }} - {{ product.name }}
+                                {% else %}
+                                    {{ product.name }} ({{ product.sku }})
+                                {% endif %}
+                                - Main: {{ product.current_quantity_main|format_number }} |
+                                Sales: {{ product.current_quantity_sales|format_number }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label style="font-size: 12px;">Quantity</label>
+                        <input type="number" step="0.01" name="quantity[]" class="quantity" required placeholder="0.00" onchange="checkMovementStock(this)">
+                    </div>
+                    <div class="form-group">
+                        <label style="font-size: 12px;">From Store</label>
+                        <select name="from_store[]" class="from-store" required onchange="checkMovementStock(this)">
+                            <option value="main">Main Store</option>
+                            <option value="sales">Sales Store</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label style="font-size: 12px;">To Store</label>
+                        <select name="to_store[]" class="to-store" required onchange="checkMovementStock(this)">
+                            <option value="main">Main Store</option>
+                            <option value="sales">Sales Store</option>
+                        </select>
+                    </div>
+                    <div>
+                        <button type="button" onclick="removeMovementItem(this)" class="btn-danger" style="margin-top: 22px;">✗</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <button type="button" onclick="addMovementItem()" style="background: #28a745; margin: 10px 0;">+ Add Another Item</button>
+
+        <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 5px;">
+            <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
+                <strong>Total Items to Transfer:</strong>
+                <span id="totalItems">0</span>
+            </div>
+            <div class="form-group" style="margin-top: 10px;">
+                <label>Notes</label>
+                <textarea name="notes" rows="2" placeholder="Additional notes for this transfer"></textarea>
+            </div>
+        </div>
+
+        <button type="submit" style="margin-top: 20px;">Process Transfer</button>
+    </form>
+</div>
+
+<!-- Recent Movements List -->
+<h2>Recent Store Movements</h2>
+<div style="overflow-x: auto;">
+    <table class="movements-table">
+        <thead>
+            <tr style="background: #2c3e50; color: white;">
+                <th>Date</th>
+                <th>Product</th>
+                <th class="text-right">Quantity</th>
+                <th>From Store</th>
+                <th>To Store</th>
+                <th>Reference</th>
+                <th>Notes</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for movement in movements %}
+            <tr>
+                <td>{{ movement.movement_date.strftime('%Y-%m-%d %H:%M') }}</td>
+                <td>{{ movement.product.name }}<br><small>{{ movement.product.sku }}</small></td>
+                <td class="text-right">{{ movement.quantity|format_number }}</td>
+                <td>{{ 'Main Store' if movement.from_store == 'main' else 'Sales Store' }}</td>
+                <td>{{ 'Main Store' if movement.to_store == 'main' else 'Sales Store' }}</td>
+                <td>{{ movement.reference or '-' }}</td>
+                <td>{{ movement.notes or '-' }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="7" style="text-align: center; padding: 40px;">No store movements recorded yet</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        {% if movements %}
+        <tfoot style="background: #f8f9fa; font-weight: bold;">
+            <tr>
+                <td colspan="2"><strong>TOTAL ITEMS MOVED</strong></td>
+                <td class="text-right"><strong>{{ movements|sum(attribute='quantity')|format_number }}</strong></td>
+                <td colspan="4"></td>
+            </tr>
+        </tfoot>
+        {% endif %}
+    </table>
+</div>
+
+<style>
+    .movements-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .movements-table th,
+    .movements-table td {
+        padding: 12px;
+        border-bottom: 1px solid #dee2e6;
+        vertical-align: middle;
+    }
+
+    .movements-table tbody tr:hover {
+        background: #f5f5f5;
+    }
+
+    .item-row {
+        background: #f8f9fa;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+        border: 1px solid #dee2e6;
+    }
+
+    .text-right {
+        text-align: right;
+    }
+
+    @media (max-width: 768px) {
+        .movements-table {
+            font-size: 12px;
+        }
+
+        .movements-table th,
+        .movements-table td {
+            padding: 8px;
+        }
+
+        .item-row div {
+            grid-template-columns: 1fr !important;
+            gap: 10px !important;
+        }
+
+        .item-row button {
+            margin-top: 0 !important;
+        }
+    }
+</style>
+
+<script>
+function checkMovementStock(element) {
+    const row = element.closest('.item-row');
+    const productSelect = row.querySelector('.product-select');
+    const fromStore = row.querySelector('.from-store').value;
+    const quantityInput = row.querySelector('.quantity');
+    const selectedOption = productSelect.options[productSelect.selectedIndex];
+    const toStore = row.querySelector('.to-store').value;
+
+    // Validate that from and to stores are different
+    if (fromStore === toStore && fromStore !== '' && toStore !== '') {
+        alert('Source and destination stores cannot be the same');
+        row.querySelector('.to-store').value = fromStore === 'main' ? 'sales' : 'main';
+    }
+
+    if (selectedOption && selectedOption.value && fromStore) {
+        let maxStock = 0;
+        if (fromStore === 'main') {
+            maxStock = parseFloat(selectedOption.dataset.mainStock) || 0;
+        } else {
+            maxStock = parseFloat(selectedOption.dataset.salesStock) || 0;
+        }
+
+        const quantity = parseFloat(quantityInput.value) || 0;
+        if (quantity > maxStock) {
+            alert(`Insufficient stock! Only ${maxStock.toFixed(2)} units available in ${fromStore === 'main' ? 'Main Store' : 'Sales Store'}.`);
+            quantityInput.value = maxStock;
+        }
+
+        quantityInput.max = maxStock;
+    }
+}
+
+function addMovementItem() {
+    const container = document.getElementById('movementItems');
+    const template = document.querySelector('#movementItems .item-row').cloneNode(true);
+
+    // Clear input values
+    template.querySelector('.product-select').value = '';
+    template.querySelector('.quantity').value = '';
+    template.querySelector('.from-store').value = 'main';
+    template.querySelector('.to-store').value = 'sales';
+
+    // Add remove button functionality
+    const removeBtn = template.querySelector('button');
+    removeBtn.onclick = function() {
+        const container = document.getElementById('movementItems');
+        if (container.children.length > 1) {
+            this.closest('.item-row').remove();
+            updateTotalItems();
+        } else {
+            alert('At least one item is required');
+        }
+    };
+
+    container.appendChild(template);
+    updateTotalItems();
+}
+
+function removeMovementItem(btn) {
+    const container = document.getElementById('movementItems');
+    if (container.children.length > 1) {
+        btn.closest('.item-row').remove();
+        updateTotalItems();
+    } else {
+        alert('At least one item is required');
+    }
+}
+
+function updateTotalItems() {
+    let totalItems = 0;
+    document.querySelectorAll('.quantity').forEach(input => {
+        totalItems += parseFloat(input.value) || 0;
+    });
+    document.getElementById('totalItems').innerText = totalItems.toFixed(2);
+}
+
+// Update stock check when from store changes
+document.addEventListener('change', function(e) {
+    if (e.target.classList.contains('from-store') || e.target.classList.contains('product-select')) {
+        checkMovementStock(e.target);
+    }
+    if (e.target.classList.contains('quantity')) {
+        updateTotalItems();
+        checkMovementStock(e.target);
+    }
+    if (e.target.classList.contains('to-store')) {
+        checkMovementStock(e.target);
+    }
+});
+
+// Form validation
+document.getElementById('bulkMovementForm')?.addEventListener('submit', function(e) {
+    const items = document.querySelectorAll('.item-row');
+    let hasItems = false;
+    let allValid = true;
+
+    items.forEach((item, index) => {
+        const product = item.querySelector('.product-select').value;
+        const quantity = item.querySelector('.quantity').value;
+        const fromStore = item.querySelector('.from-store').value;
+        const toStore = item.querySelector('.to-store').value;
+
+        if (product && quantity && fromStore && toStore) {
+            hasItems = true;
+
+            if (parseFloat(quantity) <= 0) {
+                allValid = false;
+                alert(`Item ${index + 1}: Quantity must be greater than 0`);
+            }
+
+            if (fromStore === toStore) {
+                allValid = false;
+                alert(`Item ${index + 1}: Source and destination stores cannot be the same`);
+            }
+        }
+    });
+
+    if (!hasItems) {
+        e.preventDefault();
+        alert('Please add at least one item to transfer');
+    }
+
+    if (!allValid) {
+        e.preventDefault();
+    }
+});
+</script>
+{% endblock %}

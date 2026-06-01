@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Reports Center</h1>
+
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+    <div class="card">
+        <h3>📊 Sales Report</h3>
+        <p>View sales transactions for any period</p>
+        <a href="{{ url_for('sales_report') }}" class="btn-primary" style="display: inline-block; margin-top: 15px; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 5px;">View Report</a>
+    </div>
+
+    <div class="card">
+        <h3>🛒 Purchases Report</h3>
+        <p>View purchase transactions for any period</p>
+        <a href="{{ url_for('purchases_report') }}" class="btn-primary" style="display: inline-block; margin-top: 15px; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 5px;">View Report</a>
+    </div>
+
+    <div class="card">
+        <h3>🔄 Store Movements Report</h3>
+        <p>Track all stock movements between stores</p>
+        <a href="{{ url_for('movements_report') }}" class="btn-primary" style="display: inline-block; margin-top: 15px; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 5px;">View Report</a>
+    </div>
+
+    <div class="card">
+        <h3>💰 Costing Report</h3>
+        <p>FIFO and Weighted Average costing analysis</p>
+        <a href="{{ url_for('costing_report') }}" class="btn-primary" style="display: inline-block; margin-top: 15px; padding: 10px 20px; background: #007bff; color: white; text-decoration: none; border-radius: 5px;">View Report</a>
+    </div>
+
+    <div class="card" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+        <h3 style="color: white;">📈 Period Summary Stock Report</h3>
+        <p style="color: rgba(255,255,255,0.9);">Opening, Purchases, Sales, Movements & Closing summary</p>
+        <p style="color: rgba(255,255,255,0.8); font-size: 12px; margin-top: 5px;">✓ Main Store ✓ Sales Store ✓ All Stores Combined</p>
+        <a href="{{ url_for('stock_summary_report') }}" style="display: inline-block; margin-top: 15px; padding: 10px 20px; background: white; color: #667eea; text-decoration: none; border-radius: 5px; font-weight: bold;">View Report →</a>
+    </div>
+</div>
+{% endblock %}

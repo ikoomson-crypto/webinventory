@@ -1,0 +1,230 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>New Internal Requisition</h1>
+    <div>
+        <a href="{{ url_for('requisitions') }}" class="btn-primary" style="background: #6c757d;">← Back to List</a>
+    </div>
+</div>
+
+<div class="form-container">
+    <form method="POST" action="{{ url_for('new_requisition') }}" id="requisitionForm">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+            <div class="form-group">
+                <label>Requisition Date <span style="color: red;">*</span></label>
+                <input type="date" name="requisition_date" value="{{ now.strftime('%Y-%m-%d') }}" required>
+            </div>
+            <div class="form-group">
+                <label>Source Store <span style="color: red;">*</span></label>
+                <select name="source_store" required>
+                    <option value="main">Main Store (Warehouse)</option>
+                    <option value="sales">Sales Store (Retail)</option>
+                </select>
+            </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px;">
+            <div class="form-group">
+                <label>Requested By <span style="color: red;">*</span></label>
+                <select name="requested_by" required>
+                    <option value="">Select Requester</option>
+                    {% for customer in customers %}
+                    <option value="{{ customer.name }}" data-phone="{{ customer.telephone }}">
+                        {{ customer.name }} - {{ customer.telephone }}
+                    </option>
+                    {% endfor %}
+                </select>
+                <small style="color: #666;">Select the person making this requisition</small>
+            </div>
+            <div class="form-group">
+                <label>Reference No (Optional)</label>
+                <input type="text" name="reference" placeholder="e.g., PR-001, Order #123">
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Purpose <span style="color: red;">*</span></label>
+            <select name="purpose" id="purposeSelect" required onchange="toggleCustomPurpose()">
+                <option value="">Select Purpose</option>
+                <option value="office_supplies">Office Supplies</option>
+                <option value="maintenance">Maintenance & Repairs</option>
+                <option value="operations">Operations</option>
+                <option value="production">Production</option>
+                <option value="client_project">Client Project</option>
+                <option value="internal_use">Internal Use</option>
+                <option value="other">Other (Specify)</option>
+            </select>
+        </div>
+
+        <div class="form-group" id="customPurposeDiv" style="display: none;">
+            <label>Specify Purpose</label>
+            <textarea name="custom_purpose" rows="2" placeholder="Please specify the purpose..."></textarea>
+        </div>
+
+        <h4 style="margin: 20px 0 10px 0;">Items Requested</h4>
+        <div id="requisitionItems">
+            <div class="item-row" style="display: grid; grid-template-columns: 3fr 1fr 1fr 0.5fr; gap: 10px; margin-bottom: 10px; align-items: center; background: #f8f9fa; padding: 10px; border-radius: 5px;">
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 12px;">Product</label>
+                    <select name="product_id[]" class="product-select" required onchange="checkStock(this)">
+                        <option value="">Select Product</option>
+                        {% for product in products %}
+                        <option value="{{ product.id }}"
+                                data-main-stock="{{ product.current_quantity_main }}"
+                                data-sales-stock="{{ product.current_quantity_sales }}">
+                            {% if product.sales_description %}
+                                {{ product.sales_description }} - {{ product.name }}
+                            {% else %}
+                                {{ product.name }} ({{ product.sku }})
+                            {% endif %}
+                            - Stock: {{ product.current_quantity_main|format_number if source_store == 'main' else product.current_quantity_sales|format_number }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 12px;">Quantity</label>
+                    <input type="number" step="0.01" name="quantity[]" class="quantity" required placeholder="0.00" onchange="checkStock(this)">
+                </div>
+                <div class="form-group" style="margin-bottom: 0;">
+                    <label style="font-size: 12px;">Notes</label>
+                    <input type="text" name="item_notes[]" placeholder="Optional">
+                </div>
+                <div>
+                    <button type="button" onclick="removeItem(this)" style="margin-top: 22px; background: #dc3545;">✗</button>
+                </div>
+            </div>
+        </div>
+
+        <button type="button" onclick="addRequisitionItem()" style="background: #28a745; margin: 10px 0;">+ Add Another Item</button>
+
+        <div class="form-group" style="margin-top: 20px;">
+            <label>Additional Notes</label>
+            <textarea name="notes" rows="2" placeholder="Any additional information..."></textarea>
+        </div>
+
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button type="submit" class="btn-primary" style="background: #28a745;">✓ Submit Requisition</button>
+            <button type="button" onclick="submitAndNew()" class="btn-primary" style="background: #007bff;">📋 Submit & New</button>
+            <button type="button" onclick="window.location.href='{{ url_for('requisitions') }}'" class="btn-danger">Cancel</button>
+        </div>
+    </form>
+</div>
+
+<style>
+    .item-row {
+        background: white;
+        padding: 10px;
+        border-radius: 5px;
+        margin-bottom: 10px;
+        border: 1px solid #dee2e6;
+    }
+
+    .item-row:hover {
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    @media (max-width: 768px) {
+        .item-row {
+            grid-template-columns: 1fr !important;
+            gap: 10px !important;
+        }
+
+        .item-row button {
+            margin-top: 0 !important;
+        }
+    }
+</style>
+
+<script>
+function toggleCustomPurpose() {
+    const purposeSelect = document.getElementById('purposeSelect');
+    const customDiv = document.getElementById('customPurposeDiv');
+    if (purposeSelect.value === 'other') {
+        customDiv.style.display = 'block';
+    } else {
+        customDiv.style.display = 'none';
+    }
+}
+
+function checkStock(input) {
+    const row = input.closest('.item-row');
+    const productSelect = row.querySelector('.product-select');
+    const sourceStore = document.querySelector('select[name="source_store"]').value;
+    const selectedOption = productSelect.options[productSelect.selectedIndex];
+
+    if (selectedOption && selectedOption.value) {
+        let maxStock = 0;
+        if (sourceStore === 'main') {
+            maxStock = parseFloat(selectedOption.dataset.mainStock) || 0;
+        } else {
+            maxStock = parseFloat(selectedOption.dataset.salesStock) || 0;
+        }
+
+        const quantity = parseFloat(input.value) || 0;
+        if (quantity > maxStock) {
+            alert(`Insufficient stock! Only ${maxStock.toFixed(2)} units available in ${sourceStore === 'main' ? 'Main Store' : 'Sales Store'}.`);
+            input.value = maxStock;
+        }
+    }
+}
+
+function addRequisitionItem() {
+    const container = document.getElementById('requisitionItems');
+    const template = document.querySelector('#requisitionItems .item-row').cloneNode(true);
+
+    template.querySelector('.product-select').value = '';
+    template.querySelector('.quantity').value = '';
+    template.querySelector('input[type="text"]').value = '';
+
+    const removeBtn = template.querySelector('button');
+    removeBtn.onclick = function() { removeItem(this); };
+
+    container.appendChild(template);
+}
+
+function removeItem(btn) {
+    const container = document.getElementById('requisitionItems');
+    if (container.children.length > 1) {
+        btn.closest('.item-row').remove();
+    } else {
+        alert('At least one item is required');
+    }
+}
+
+function submitAndNew() {
+    const form = document.getElementById('requisitionForm');
+    const originalAction = form.action;
+    form.action = originalAction + '?new=true';
+    form.submit();
+}
+
+// Update stock check when source store changes
+document.querySelector('select[name="source_store"]').addEventListener('change', function() {
+    document.querySelectorAll('.quantity').forEach(input => {
+        checkStock(input);
+    });
+});
+
+// Form validation
+document.getElementById('requisitionForm').addEventListener('submit', function(e) {
+    const items = document.querySelectorAll('.item-row');
+    let hasItems = false;
+
+    items.forEach(item => {
+        const product = item.querySelector('.product-select').value;
+        const quantity = item.querySelector('.quantity').value;
+
+        if (product && quantity && parseFloat(quantity) > 0) {
+            hasItems = true;
+        }
+    });
+
+    if (!hasItems) {
+        e.preventDefault();
+        alert('Please add at least one item to the requisition');
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Company Settings</h1>
+
+<div class="form-container">
+    <h3>Company Information</h3>
+    <form method="POST">
+        <div class="form-group">
+            <label>Company Name</label>
+            <input type="text" name="company_name" value="{{ company_info.name }}" required>
+        </div>
+        <div class="form-group">
+            <label>Company Address</label>
+            <textarea name="company_address" required>{{ company_info.address }}</textarea>
+        </div>
+        <div class="form-group">
+            <label>Phone Number</label>
+            <input type="text" name="company_phone" value="{{ company_info.phone }}">
+        </div>
+        <div class="form-group">
+            <label>Email Address</label>
+            <input type="email" name="company_email" value="{{ company_info.email }}">
+        </div>
+        <button type="submit">Save Settings</button>
+    </form>
+</div>
+
+<div class="form-container">
+    <h3>Logo Upload</h3>
+    <p>Place your company logo file named <strong>logo.png</strong> in the <strong>static</strong> folder</p>
+    <p>Supported formats: PNG, JPG, JPEG</p>
+    <p>Recommended size: 150x50 pixels</p>
+</div>
+
+<div class="form-container">
+    <h3>System Information</h3>
+    <p><strong>Database:</strong> SQLite (inventory.db)</p>
+    <p><strong>Default Admin:</strong> admin / admin123</p>
+    <p><strong>System Version:</strong> 1.0</p>
+</div>
+{% endblock %}

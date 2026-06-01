@@ -1,0 +1,483 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Products</h1>
+    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+        <a href="{{ url_for('export_products') }}" class="btn-primary" style="background: #28a745;">📥 Export to Excel</a>
+        {% if session.role == 'admin' %}
+        <button onclick="document.getElementById('importModal').style.display='flex'" class="btn-primary" style="background: #17a2b8;">📤 Import from Excel</button>
+        {% endif %}
+        <button onclick="showAddProductModal()" class="btn-primary" style="background: #007bff;">➕ Add Product</button>
+        {% if session.role == 'admin' %}
+        <button onclick="showBulkDeleteModal()" class="btn-danger" style="background: #dc3545;">🗑️ Delete Multiple Products</button>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Product List Table -->
+<div class="form-container">
+    <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+        <input type="text" id="searchInput" placeholder="🔍 Search products by name or SKU..." style="width: 300px; display: inline-block;">
+        <div>
+            <label style="margin-right: 10px;">
+                <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll()"> Select All
+            </label>
+            <span id="selectedCount" style="color: #666; font-size: 14px;">0 items selected</span>
+        </div>
+    </div>
+
+    <div style="overflow-x: auto;">
+        <table class="products-table">
+            <thead>
+                <tr style="background: #2c3e50; color: white;">
+                    <th style="width: 40px;">
+                        <input type="checkbox" id="headerSelectAll" onchange="toggleSelectAll()" style="width: auto;">
+                    </th>
+                    <th>SKU</th>
+                    <th>Product Name</th>
+                    <th>Sales Description</th>
+                    <th>Selling Price ({{ currency_symbol }})</th>
+                    <th>Main Stock</th>
+                    <th>Sales Stock</th>
+                    <th style="width: 100px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="productsTableBody">
+                {% for product in products %}
+                <tr data-product-id="{{ product.id }}" data-sku="{{ product.sku }}" data-name="{{ product.name }}"
+                    data-price="{{ product.unit_price }}" data-description="{{ product.description }}"
+                    data-sales-description="{{ product.sales_description or '' }}">
+                    <td class="text-center">
+                        <input type="checkbox" class="product-checkbox" value="{{ product.id }}" onchange="updateSelectedCount()">
+                    </td>
+                    <td><strong>{{ product.sku }}</strong></td>
+                    <td>{{ product.name }}</td>
+                    <td>{{ product.sales_description or '-' }}</td>
+                    <td class="price-cell">
+                        <span class="price-display">{{ currency_symbol }}{{ product.unit_price|round(2)|format_number }}</span>
+                        <input type="number" step="0.01" class="price-edit" value="{{ product.unit_price }}" style="display: none; width: 100px;">
+                    </td>
+                    <td class="text-center">{{ product.current_quantity_main|format_number }}</td>
+                    <td class="text-center">{{ product.current_quantity_sales|format_number }}</td>
+                    <td class="text-center">
+                        <button onclick="editProduct({{ product.id }})" class="btn-small btn-edit">✏️ Edit</button>
+                        <button onclick="deleteProduct({{ product.id }}, '{{ product.name }}')" class="btn-small btn-delete">🗑️ Delete</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Bulk Delete Modal -->
+<div id="bulkDeleteModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
+        <h3>Delete Multiple Products</h3>
+        <p>You have selected <strong id="deleteCount">0</strong> product(s) to delete.</p>
+        <div style="background: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0;">
+            <h4 style="color: #856404; margin-bottom: 10px;">⚠️ Warning!</h4>
+            <ul style="color: #856404; font-size: 13px; margin-left: 20px;">
+                <li>This action cannot be undone</li>
+                <li>All purchase records for these products will be deleted</li>
+                <li>All sales records for these products will be deleted</li>
+                <li>All store movements for these products will be deleted</li>
+                <li>All requisition items for these products will be deleted</li>
+            </ul>
+        </div>
+        <div id="selectedProductsList" style="max-height: 200px; overflow-y: auto; margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 5px;">
+            <!-- Selected products will be listed here -->
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button onclick="confirmBulkDelete()" style="background: #dc3545;">Delete Selected Products</button>
+            <button type="button" onclick="closeBulkDeleteModal()" class="btn-primary">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<!-- Add Product Modal -->
+<div id="addProductModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;">
+        <h3>Add New Product</h3>
+        <form method="POST" action="{{ url_for('add_product') }}" id="addProductForm">
+            <div class="form-group">
+                <label>SKU (Unique Identifier) <span style="color: red;">*</span></label>
+                <input type="text" name="sku" required placeholder="e.g., PROD-001">
+                <small style="color: #666;">Must be unique</small>
+            </div>
+            <div class="form-group">
+                <label>Product Name <span style="color: red;">*</span></label>
+                <input type="text" name="name" required placeholder="e.g., Laptop, Phone, etc.">
+            </div>
+            <div class="form-group">
+                <label>Internal Description (Optional)</label>
+                <textarea name="description" rows="2" placeholder="Internal notes about this product..."></textarea>
+                <small style="color: #666;">For internal use only</small>
+            </div>
+            <div class="form-group">
+                <label>Sales Description (Shown to Sales Team)</label>
+                <textarea name="sales_description" rows="2" placeholder="Customer-friendly description that will appear in sales dropdown..."></textarea>
+                <small style="color: #28a745;">💡 This description will be shown to salespeople. Format: "Sales Description - Product Name"</small>
+            </div>
+            <div class="form-group">
+                <label>Selling Price ({{ currency_symbol }}) <span style="color: red;">*</span></label>
+                <input type="number" step="0.01" name="unit_price" required placeholder="0.00">
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="submit">Add Product</button>
+                <button type="button" onclick="closeAddProductModal()" class="btn-danger">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Product Modal -->
+<div id="editProductModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;">
+        <h3>Edit Product</h3>
+        <form method="POST" action="{{ url_for('update_product') }}" id="editProductForm">
+            <input type="hidden" name="product_id" id="edit_product_id">
+            <div class="form-group">
+                <label>SKU (Unique Identifier)</label>
+                <input type="text" name="sku" id="edit_sku" readonly style="background: #f8f9fa;" disabled>
+                <small style="color: #666;">SKU cannot be changed</small>
+            </div>
+            <div class="form-group">
+                <label>Product Name <span style="color: red;">*</span></label>
+                <input type="text" name="name" id="edit_name" required>
+            </div>
+            <div class="form-group">
+                <label>Internal Description</label>
+                <textarea name="description" id="edit_description" rows="2" placeholder="Internal notes..."></textarea>
+                <small style="color: #666;">For internal use only</small>
+            </div>
+            <div class="form-group">
+                <label>Sales Description (Shown to Sales Team)</label>
+                <textarea name="sales_description" id="edit_sales_description" rows="2" placeholder="Customer-friendly description..."></textarea>
+                <small style="color: #28a745;">💡 Format: "Sales Description - Product Name"</small>
+            </div>
+            <div class="form-group">
+                <label>Selling Price ({{ currency_symbol }}) <span style="color: red;">*</span></label>
+                <input type="number" step="0.01" name="unit_price" id="edit_price" required>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="submit">Update Product</button>
+                <button type="button" onclick="closeEditProductModal()" class="btn-danger">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Import Modal (Admin Only) -->
+{% if session.role == 'admin' %}
+<div id="importModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
+        <h3>Import Products from Excel</h3>
+        <form method="POST" action="{{ url_for('import_products') }}" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>Select Excel File</label>
+                <input type="file" name="file" accept=".xlsx,.xls" required>
+                <small style="color: #666;">File should have columns: SKU, Name, Unit Price, Sales Description (optional)</small>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="submit">Import</button>
+                <button type="button" onclick="document.getElementById('importModal').style.display='none'" class="btn-danger">Cancel</button>
+            </div>
+        </form>
+        <div style="margin-top: 15px;">
+            <a href="{{ url_for('export_products') }}" style="color: #667eea;">Download template →</a>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+<style>
+    .products-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .products-table th,
+    .products-table td {
+        padding: 12px;
+        border-bottom: 1px solid #dee2e6;
+        vertical-align: middle;
+    }
+
+    .products-table tbody tr:hover {
+        background: #f8f9fa;
+    }
+
+    .products-table tbody tr.selected {
+        background: #e7f3ff;
+    }
+
+    .btn-small {
+        padding: 5px 10px;
+        font-size: 12px;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        margin: 0 2px;
+    }
+
+    .btn-edit {
+        background: #007bff;
+        color: white;
+    }
+
+    .btn-edit:hover {
+        background: #0056b3;
+    }
+
+    .btn-delete {
+        background: #dc3545;
+        color: white;
+    }
+
+    .btn-delete:hover {
+        background: #c82333;
+    }
+
+    .text-center {
+        text-align: center;
+    }
+
+    #searchInput {
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        font-size: 14px;
+        flex: 1;
+    }
+
+    #searchInput:focus {
+        outline: none;
+        border-color: #667eea;
+    }
+
+    @media (max-width: 768px) {
+        .products-table {
+            font-size: 12px;
+        }
+
+        .btn-small {
+            padding: 3px 6px;
+            font-size: 10px;
+        }
+    }
+</style>
+
+<script>
+let selectedProducts = new Set();
+
+// Update selected count display
+function updateSelectedCount() {
+    selectedProducts.clear();
+    document.querySelectorAll('.product-checkbox:checked').forEach(cb => {
+        selectedProducts.add(cb.value);
+    });
+
+    const count = selectedProducts.size;
+    document.getElementById('selectedCount').innerText = `${count} item(s) selected`;
+    document.getElementById('headerSelectAll').checked = count === document.querySelectorAll('.product-checkbox').length;
+
+    // Highlight selected rows
+    document.querySelectorAll('.products-table tbody tr').forEach(row => {
+        const checkbox = row.querySelector('.product-checkbox');
+        if (checkbox && checkbox.checked) {
+            row.classList.add('selected');
+        } else {
+            row.classList.remove('selected');
+        }
+    });
+}
+
+// Toggle select all
+function toggleSelectAll() {
+    const selectAll = document.getElementById('headerSelectAll').checked;
+    document.querySelectorAll('.product-checkbox').forEach(cb => {
+        cb.checked = selectAll;
+    });
+    updateSelectedCount();
+}
+
+// Show bulk delete modal
+function showBulkDeleteModal() {
+    if (selectedProducts.size === 0) {
+        alert('Please select at least one product to delete');
+        return;
+    }
+
+    document.getElementById('deleteCount').innerText = selectedProducts.size;
+
+    // Show selected products list
+    const selectedList = document.getElementById('selectedProductsList');
+    selectedList.innerHTML = '<strong>Selected products:</strong><ul>';
+
+    document.querySelectorAll('.product-checkbox:checked').forEach(cb => {
+        const row = cb.closest('tr');
+        const name = row.querySelector('td:nth-child(3)').innerText;
+        const sku = row.querySelector('td:nth-child(2)').innerText;
+        selectedList.innerHTML += `<li>${name} (${sku})</li>`;
+    });
+
+    selectedList.innerHTML += '</ul>';
+    document.getElementById('bulkDeleteModal').style.display = 'flex';
+}
+
+// Close bulk delete modal
+function closeBulkDeleteModal() {
+    document.getElementById('bulkDeleteModal').style.display = 'none';
+}
+
+// Confirm and execute bulk delete
+function confirmBulkDelete() {
+    const productIds = Array.from(selectedProducts);
+
+    if (productIds.length === 0) {
+        alert('No products selected');
+        return;
+    }
+
+    if (confirm(`Are you sure you want to delete ${productIds.length} product(s)? This action cannot be undone and will delete all related records.`)) {
+        fetch('{{ url_for("bulk_delete_products") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ product_ids: productIds })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                alert(`Successfully deleted ${data.deleted_count} product(s). ${data.error_count || 0} error(s).`);
+                location.reload();
+            } else {
+                alert('Error: ' + (data.error || 'Unknown error'));
+            }
+        })
+        .catch(error => {
+            alert('Error deleting products: ' + error);
+        });
+    }
+}
+
+// Search functionality
+document.getElementById('searchInput').addEventListener('keyup', function() {
+    const searchTerm = this.value.toLowerCase();
+    const rows = document.querySelectorAll('#productsTableBody tr');
+
+    rows.forEach(row => {
+        const sku = row.querySelector('td:nth-child(2)').innerText.toLowerCase();
+        const name = row.querySelector('td:nth-child(3)').innerText.toLowerCase();
+        if (sku.includes(searchTerm) || name.includes(searchTerm)) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+            // Uncheck hidden rows
+            const checkbox = row.querySelector('.product-checkbox');
+            if (checkbox) checkbox.checked = false;
+        }
+    });
+    updateSelectedCount();
+});
+
+// Add Product Modal
+function showAddProductModal() {
+    document.getElementById('addProductModal').style.display = 'flex';
+    document.getElementById('addProductForm').reset();
+}
+
+function closeAddProductModal() {
+    document.getElementById('addProductModal').style.display = 'none';
+}
+
+// Edit Product Modal
+function editProduct(productId) {
+    const row = document.querySelector(`tr[data-product-id="${productId}"]`);
+    const sku = row.dataset.sku;
+    const name = row.dataset.name;
+    const price = row.dataset.price;
+    const description = row.dataset.description || '';
+    const salesDescription = row.dataset.salesDescription || '';
+
+    document.getElementById('edit_product_id').value = productId;
+    document.getElementById('edit_sku').value = sku;
+    document.getElementById('edit_name').value = name;
+    document.getElementById('edit_price').value = price;
+    document.getElementById('edit_description').value = description;
+    document.getElementById('edit_sales_description').value = salesDescription;
+
+    document.getElementById('editProductModal').style.display = 'flex';
+}
+
+function closeEditProductModal() {
+    document.getElementById('editProductModal').style.display = 'none';
+}
+
+// Delete single product
+function deleteProduct(productId, productName) {
+    if (confirm(`Are you sure you want to delete "${productName}"? This action cannot be undone.`)) {
+        window.location.href = `{{ url_for('delete_product', id=0) }}`.replace('0', productId);
+    }
+}
+
+// Close modals when clicking outside
+window.onclick = function(event) {
+    const addModal = document.getElementById('addProductModal');
+    const editModal = document.getElementById('editProductModal');
+    const importModal = document.getElementById('importModal');
+    const bulkModal = document.getElementById('bulkDeleteModal');
+
+    if (event.target == addModal) closeAddProductModal();
+    if (event.target == editModal) closeEditProductModal();
+    if (event.target == importModal) document.getElementById('importModal').style.display = 'none';
+    if (event.target == bulkModal) closeBulkDeleteModal();
+}
+
+// Form validation for add product
+document.getElementById('addProductForm')?.addEventListener('submit', function(e) {
+    const sku = this.querySelector('[name="sku"]').value.trim();
+    const name = this.querySelector('[name="name"]').value.trim();
+    const price = parseFloat(this.querySelector('[name="unit_price"]').value);
+
+    if (!sku) {
+        e.preventDefault();
+        alert('SKU is required');
+        return false;
+    }
+
+    if (!name) {
+        e.preventDefault();
+        alert('Product name is required');
+        return false;
+    }
+
+    if (isNaN(price) || price < 0) {
+        e.preventDefault();
+        alert('Please enter a valid price');
+        return false;
+    }
+});
+
+// Form validation for edit product
+document.getElementById('editProductForm')?.addEventListener('submit', function(e) {
+    const name = this.querySelector('[name="name"]').value.trim();
+    const price = parseFloat(this.querySelector('[name="unit_price"]').value);
+
+    if (!name) {
+        e.preventDefault();
+        alert('Product name is required');
+        return false;
+    }
+
+    if (isNaN(price) || price < 0) {
+        e.preventDefault();
+        alert('Please enter a valid price');
+        return false;
+    }
+});
+</script>
+{% endblock %}

@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>User Management</h1>
+
+<div class="form-container">
+    <h2>Add New User</h2>
+    <form method="POST" action="{{ url_for('add_user') }}">
+        <div class="form-group">
+            <label>Username</label>
+            <input type="text" name="username" required>
+        </div>
+        <div class="form-group">
+            <label>Password</label>
+            <input type="text" name="password" required>
+        </div>
+        <div class="form-group">
+            <label>Role</label>
+            <select name="role" required>
+                <option value="staff">Staff</option>
+                <option value="admin">Admin</option>
+            </select>
+        </div>
+        <button type="submit">Add User</button>
+    </form>
+</div>
+
+<div class="form-container">
+    <h2>Existing Users</h2>
+    <table>
+        <thead>
+            <tr><th>ID</th><th>Username</th><th>Role</th><th>Created</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+            {% for user in users %}
+            <tr>
+                <td>{{ user.id }}</td>
+                <td>{{ user.username }}</td>
+                <td>{{ user.role }}</td>
+                <td>{{ user.created_at.strftime('%Y-%m-%d %H:%M') if user.created_at else '-' }}</td>
+                <td>
+                    {% if user.id != session.user_id %}
+                    <a href="{{ url_for('delete_user', id=user.id) }}" onclick="return confirm('Delete user?')" style="color: #dc3545;">Delete</a>
+                    {% else %}
+                    <span style="color: #999;">Current User</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="form-container">
+    <h2>Change Password</h2>
+    <form method="POST" action="{{ url_for('change_password') }}">
+        <div class="form-group">
+            <label>Select User</label>
+            <select name="user_id" required>
+                {% for user in users %}
+                <option value="{{ user.id }}">{{ user.username }} ({{ user.role }})</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group">
+            <label>New Password</label>
+            <input type="text" name="new_password" required>
+        </div>
+        <button type="submit">Change Password</button>
+    </form>
+</div>
+{% endblock %}

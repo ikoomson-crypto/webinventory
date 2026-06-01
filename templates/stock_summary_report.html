@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Period Summary Stock Report</h1>
+
+<div class="report-filters">
+    <form method="GET" class="filter-form">
+        <div class="form-group">
+            <label>Store</label>
+            <select name="store" required>
+                <option value="main" {% if selected_store == 'main' %}selected{% endif %}>Main Store</option>
+                <option value="sales" {% if selected_store == 'sales' %}selected{% endif %}>Sales Store</option>
+                <option value="all" {% if selected_store == 'all' %}selected{% endif %}>All Stores (Combined)</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Start Date</label>
+            <input type="date" name="start_date" value="{{ start_date }}" required>
+        </div>
+        <div class="form-group">
+            <label>End Date</label>
+            <input type="date" name="end_date" value="{{ end_date }}" required>
+        </div>
+        <button type="submit">Generate Report</button>
+        {% if stock_data %}
+        <button type="button" onclick="window.print()" class="btn-primary" style="background: #17a2b8;">Print Report</button>
+        <button type="button" onclick="exportToCSV()" class="btn-primary" style="background: #28a745;">Export CSV</button>
+        {% endif %}
+    </form>
+</div>
+
+{% if stock_data %}
+<div class="summary-cards" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 20px;">
+    <div class="card">
+        <h3>Report Period</h3>
+        <div class="value" style="font-size: 16px;">{{ start_date }} to {{ end_date }}</div>
+    </div>
+    <div class="card">
+        <h3>Store</h3>
+        <div class="value" style="font-size: 16px;">
+            {% if selected_store == 'all' %}
+                All Stores (Combined)
+            {% else %}
+                {{ selected_store|capitalize }} Store
+            {% endif %}
+        </div>
+    </div>
+    <div class="card">
+        <h3>Total Items</h3>
+        <div class="value">{{ stock_data|length }}</div>
+    </div>
+    <div class="card">
+        <h3>Total Value</h3>
+        <div class="value">{{ currency_symbol }}{{ "%.2f"|format(total_value) }}</div>
+    </div>
+</div>
+
+<div style="overflow-x: auto;">
+    <table class="stock-summary-table">
+        <thead>
+            <tr style="background: #2c3e50; color: white;">
+                <th>Item Code</th>
+                <th>Item Name</th>
+                <th>Opening Stock</th>
+                <th>Purchases</th>
+                <th>Sales</th>
+                <th>Movements In</th>
+                <th>Movements Out</th>
+                <th>Closing Stock</th>
+                <th>Unit Price</th>
+                <th>Closing Value</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in stock_data %}
+            <tr>
+                <td>{{ item.sku }}</td>
+                <td>{{ item.name }}</td>
+                <td class="text-right">{{ "%.2f"|format(item.opening) }}</td>
+                <td class="text-right">{{ "%.2f"|format(item.purchases) }}</td>
+                <td class="text-right">{{ "%.2f"|format(item.sales) }}</td>
+                <td class="text-right">{{ "%.2f"|format(item.movements_in) }}</td>
+                <td class="text-right">{{ "%.2f"|format(item.movements_out) }}</td>
+                <td class="text-right"><strong>{{ "%.2f"|format(item.closing) }}</strong></td>
+                <td class="text-right">{{ currency_symbol }}{{ "%.2f"|format(item.unit_price) }}</td>
+                <td class="text-right"><strong>{{ currency_symbol }}{{ "%.2f"|format(item.closing_value) }}</strong></td>
+            </tr>
+            {% endfor %}
+        </tbody>
+        <tfoot style="background: #f8f9fa; font-weight: bold;">
+            <tr>
+                <td colspan="2"><strong>TOTALS</strong></td>
+                <td class="text-right"><strong>{{ "%.2f"|format(totals.opening) }}</strong></td>
+                <td class="text-right"><strong>{{ "%.2f"|format(totals.purchases) }}</strong></td>
+                <td class="text-right"><strong>{{ "%.2f"|format(totals.sales) }}</strong></td>
+                <td class="text-right"><strong>{{ "%.2f"|format(totals.movements_in) }}</strong></td>
+                <td class="text-right"><strong>{{ "%.2f"|format(totals.movements_out) }}</strong></td>
+                <td class="text-right"><strong>{{ "%.2f"|format(totals.closing) }}</strong></td>
+                <td></td>
+                <td class="text-right"><strong>{{ currency_symbol }}{{ "%.2f"|format(totals.closing_value) }}</strong></td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+
+<div style="margin-top: 20px; padding: 15px; background: #e7f3ff; border-radius: 10px;">
+    <h3>Report Notes:</h3>
+    <ul style="margin-left: 20px; color: #666;">
+        <li><strong>Opening Stock:</strong> Stock quantity before the start date</li>
+        <li><strong>Purchases:</strong> Total quantity purchased during the period (Main store only)</li>
+        <li><strong>Sales:</strong> Total quantity sold during the period</li>
+        <li><strong>Movements In:</strong> Stock transferred INTO this store</li>
+        <li><strong>Movements Out:</strong> Stock transferred OUT of this store</li>
+        <li><strong>Closing Stock:</strong> Opening + Purchases + Movements In - Sales - Movements Out</li>
+        <li><strong>All Stores Mode:</strong> Shows combined stock across Main and Sales stores</li>
+    </ul>
+</div>
+
+{% elif start_date and end_date %}
+<div style="text-align: center; padding: 40px; background: white; border-radius: 10px;">
+    <p style="color: #666;">No stock movements found for the selected period.</p>
+</div>
+{% endif %}
+
+<style>
+    .stock-summary-table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 14px;
+    }
+
+    .stock-summary-table th,
+    .stock-summary-table td {
+        padding: 10px;
+        border: 1px solid #ddd;
+    }
+
+    .text-right {
+        text-align: right;
+    }
+
+    .stock-summary-table tbody tr:hover {
+        background: #f5f5f5;
+    }
+
+    @media print {
+        .report-filters,
+        .btn-primary,
+        button {
+            display: none;
+        }
+
+        .stock-summary-table {
+            font-size: 10px;
+        }
+
+        .summary-cards {
+            display: none;
+        }
+    }
+</style>
+
+<script>
+function exportToCSV() {
+    const table = document.querySelector('.stock-summary-table');
+    const rows = table.querySelectorAll('tr');
+    const csv = [];
+
+    for (let row of rows) {
+        const cells = row.querySelectorAll('th, td');
+        const rowData = [];
+        for (let cell of cells) {
+            let text = cell.innerText.replace(/,/g, '');
+            rowData.push(text);
+        }
+        csv.push(rowData.join(','));
+    }
+
+    const blob = new Blob([csv.join('\n')], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `stock_summary_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+}
+</script>
+{% endblock %}

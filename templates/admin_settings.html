@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Admin Settings</h1>
+
+<div style="display: grid; gap: 20px;">
+    <!-- Company Information Form -->
+    <div class="form-container">
+        <h2>Company Information</h2>
+        <form method="POST" action="{{ url_for('admin_settings') }}">
+            <div class="form-group">
+                <label>Company Name</label>
+                <input type="text" name="company_name" value="{{ settings.company_name }}" required>
+            </div>
+            <div class="form-group">
+                <label>Company Address</label>
+                <textarea name="company_address" rows="3">{{ settings.company_address }}</textarea>
+            </div>
+            <div class="form-group">
+                <label>Phone Number</label>
+                <input type="text" name="company_phone" value="{{ settings.company_phone }}">
+            </div>
+            <div class="form-group">
+                <label>Email Address</label>
+                <input type="email" name="company_email" value="{{ settings.company_email }}">
+            </div>
+            <div class="form-group">
+                <label>Tax ID / Registration Number</label>
+                <input type="text" name="company_tax_id" value="{{ settings.company_tax_id }}">
+            </div>
+            <div class="form-group">
+                <label>Currency Symbol</label>
+                <input type="text" name="currency_symbol" value="{{ settings.currency_symbol }}" maxlength="5">
+            </div>
+            <button type="submit">Save Company Settings</button>
+        </form>
+    </div>
+
+    <!-- Logo Upload Section -->
+    <div class="form-container">
+        <h2>Company Logo</h2>
+
+        {% if logo_url %}
+        <div style="margin-bottom: 20px; padding: 15px; background: #f8f9fa; border-radius: 10px; text-align: center;">
+            <h3>Current Logo</h3>
+            <img src="{{ logo_url }}" alt="Company Logo" style="max-width: 200px; max-height: 100px; margin: 10px 0;">
+            <br>
+            <a href="{{ url_for('remove_logo') }}" class="btn-danger" style="display: inline-block; padding: 8px 15px; background: #dc3545; color: white; text-decoration: none; border-radius: 5px;" onclick="return confirm('Remove logo?')">Remove Logo</a>
+        </div>
+        {% endif %}
+
+        <form method="POST" action="{{ url_for('upload_logo') }}" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>Upload New Logo</label>
+                <input type="file" name="logo" accept="image/png, image/jpeg, image/jpg, image/gif, image/webp" required>
+                <small style="color: #666;">Recommended: 200x100 pixels. Max size: 16MB. Supported: PNG, JPG, JPEG, GIF, WEBP</small>
+            </div>
+            <button type="submit">Upload Logo</button>
+        </form>
+    </div>
+
+    <!-- System Tools -->
+    <div class="form-container">
+        <h2>System Tools</h2>
+
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+            <a href="{{ url_for('admin_users') }}" class="btn-primary" style="display: block; text-align: center; padding: 10px; background: #007bff; color: white; text-decoration: none; border-radius: 5px;">User Management</a>
+            <a href="{{ url_for('system_logs') }}" class="btn-primary" style="display: block; text-align: center; padding: 10px; background: #17a2b8; color: white; text-decoration: none; border-radius: 5px;">View System Logs</a>
+            <a href="{{ url_for('backup_database') }}" class="btn-primary" style="display: block; text-align: center; padding: 10px; background: #28a745; color: white; text-decoration: none; border-radius: 5px;" onclick="return confirm('Backup database?')">Backup Database</a>
+        </div>
+
+        <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 10px;">
+            <h3>System Information</h3>
+            <p><strong>Database:</strong> SQLite (inventory.db)</p>
+            <p><strong>Upload Folder:</strong> static/uploads</p>
+            <p><strong>Logo Path:</strong> {{ settings.logo_path or 'Not set' }}</p>
+            <p><strong>System Version:</strong> 1.0</p>
+        </div>
+    </div>
+</div>
+{% endblock %}

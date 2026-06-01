@@ -1,0 +1,500 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Product Price List</h1>
+    <div style="display: flex; gap: 10px;">
+        <button onclick="saveAllPrices()" class="btn-primary" style="background: #28a745;">💾 Save All Changes</button>
+        <button onclick="exportPriceList()" class="btn-primary" style="background: #17a2b8;">📥 Export to Excel</button>
+        <button onclick="resetPrices()" class="btn-danger" style="background: #dc3545;">↺ Reset to Default</button>
+    </div>
+</div>
+
+<div class="form-container">
+    <div style="margin-bottom: 20px;">
+        <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+            <div class="form-group" style="margin-bottom: 0;">
+                <label>Search Product:</label>
+                <input type="text" id="searchInput" placeholder="Type product name or SKU..." style="width: 300px;">
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label>Filter by Category:</label>
+                <select id="categoryFilter">
+                    <option value="all">All Products</option>
+                    <option value="low_stock">Low Stock (< 10)</option>
+                    <option value="out_of_stock">Out of Stock</option>
+                    <option value="in_stock">In Stock</option>
+                </select>
+            </div>
+            <div class="form-group" style="margin-bottom: 0;">
+                <label>Sort By:</label>
+                <select id="sortBy" onchange="sortProducts()">
+                    <option value="name">Product Name</option>
+                    <option value="sku">SKU</option>
+                    <option value="price_low">Price (Low to High)</option>
+                    <option value="price_high">Price (High to Low)</option>
+                    <option value="stock">Stock Level</option>
+                </select>
+            </div>
+            <div>
+                <button onclick="applyBulkDiscount()" class="btn-primary" style="background: #ffc107; color: #333;">💰 Bulk Discount</button>
+            </div>
+        </div>
+    </div>
+
+    <div style="overflow-x: auto;">
+        <table class="price-list-table" id="priceListTable">
+            <thead>
+                <tr style="background: #2c3e50; color: white;">
+                    <th style="width: 50px;">#</th>
+                    <th>SKU</th>
+                    <th>Product Name</th>
+                    <th>Description</th>
+                    <th>Main Store Stock</th>
+                    <th>Sales Store Stock</th>
+                    <th style="width: 150px;">Unit Price ({{ currency_symbol }})</th>
+                    <th style="width: 100px;">Status</th>
+                    <th style="width: 100px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="priceListBody">
+                {% for product in products %}
+                <tr data-product-id="{{ product.id }}" data-sku="{{ product.sku }}" data-name="{{ product.name }}">
+                    <td>{{ loop.index }}</td>
+                    <td><strong>{{ product.sku }}</strong></td>
+                    <td>{{ product.name }}</td>
+                    <td>{{ product.description or '-' }}</td>
+                    <td class="text-center {% if product.current_quantity_main < 10 %}low-stock{% endif %}">
+                        {{ "%.2f"|format(product.current_quantity_main) }}
+                    </td>
+                    <td class="text-center {% if product.current_quantity_sales < 10 %}low-stock{% endif %}">
+                        {{ "%.2f"|format(product.current_quantity_sales) }}
+                    </td>
+                    <td class="text-center">
+                        <input type="number"
+                               step="0.01"
+                               value="{{ "%.2f"|format(product.unit_price) }}"
+                               class="price-input"
+                               data-original="{{ product.unit_price }}"
+                               data-product-id="{{ product.id }}"
+                               onchange="markAsChanged(this)">
+                    </td>
+                    <td class="text-center">
+                        <span class="status-badge {% if product.current_quantity_main + product.current_quantity_sales > 0 %}in-stock{% else %}out-of-stock{% endif %}">
+                            {% if product.current_quantity_main + product.current_quantity_sales > 0 %}
+                                In Stock
+                            {% else %}
+                                Out of Stock
+                            {% endif %}
+                        </span>
+                    </td>
+                    <td class="text-center">
+                        <button onclick="editProduct({{ product.id }})" class="btn-small" style="background: #007bff;">✏️ Edit</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Bulk Discount Modal -->
+<div id="bulkDiscountModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
+        <h3>Apply Bulk Discount</h3>
+        <div class="form-group">
+            <label>Discount Type:</label>
+            <select id="discountType" onchange="toggleDiscountMode()">
+                <option value="percentage">Percentage (%)</option>
+                <option value="fixed">Fixed Amount ({{ currency_symbol }})</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Discount Value:</label>
+            <input type="number" step="0.01" id="discountValue" placeholder="Enter discount amount">
+        </div>
+        <div class="form-group">
+            <label>Apply to:</label>
+            <select id="discountScope">
+                <option value="all">All Products</option>
+                <option value="selected">Selected Products</option>
+                <option value="low_stock">Low Stock Products (< 10)</option>
+                <option value="category">Specific Category</option>
+            </select>
+        </div>
+        <div style="display: flex; gap: 10px; margin-top: 20px;">
+            <button onclick="applyDiscount()">Apply Discount</button>
+            <button type="button" onclick="document.getElementById('bulkDiscountModal').style.display='none'" class="btn-danger">Cancel</button>
+        </div>
+    </div>
+</div>
+
+<style>
+    .price-list-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .price-list-table th,
+    .price-list-table td {
+        padding: 12px;
+        border-bottom: 1px solid #dee2e6;
+        vertical-align: middle;
+    }
+
+    .price-list-table tbody tr:hover {
+        background: #f8f9fa;
+    }
+
+    .price-input {
+        width: 120px;
+        padding: 8px;
+        text-align: center;
+        border: 2px solid #ddd;
+        border-radius: 5px;
+        font-size: 14px;
+        transition: all 0.3s;
+    }
+
+    .price-input:focus {
+        border-color: #667eea;
+        outline: none;
+    }
+
+    .price-input.changed {
+        background: #fff3cd;
+        border-color: #ffc107;
+    }
+
+    .text-center {
+        text-align: center;
+    }
+
+    .low-stock {
+        color: #ffc107;
+        font-weight: bold;
+    }
+
+    .out-of-stock {
+        color: #dc3545;
+        font-weight: bold;
+    }
+
+    .status-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: bold;
+    }
+
+    .status-badge.in-stock {
+        background: #d4edda;
+        color: #155724;
+    }
+
+    .status-badge.out-of-stock {
+        background: #f8d7da;
+        color: #721c24;
+    }
+
+    .btn-small {
+        padding: 5px 10px;
+        font-size: 12px;
+        border: none;
+        border-radius: 3px;
+        color: white;
+        cursor: pointer;
+    }
+
+    .save-indicator {
+        position: fixed;
+        bottom: 20px;
+        right: 20px;
+        background: #28a745;
+        color: white;
+        padding: 10px 20px;
+        border-radius: 5px;
+        display: none;
+        z-index: 1000;
+        animation: slideIn 0.3s ease;
+    }
+
+    @keyframes slideIn {
+        from {
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to {
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+
+    @media (max-width: 768px) {
+        .price-list-table {
+            font-size: 12px;
+        }
+
+        .price-input {
+            width: 80px;
+            padding: 5px;
+        }
+
+        .btn-small {
+            padding: 3px 6px;
+            font-size: 10px;
+        }
+    }
+</style>
+
+<script>
+let changedPrices = {};
+
+function markAsChanged(input) {
+    const productId = input.dataset.productId;
+    const newPrice = parseFloat(input.value);
+    const originalPrice = parseFloat(input.dataset.original);
+
+    if (newPrice !== originalPrice) {
+        input.classList.add('changed');
+        changedPrices[productId] = newPrice;
+    } else {
+        input.classList.remove('changed');
+        delete changedPrices[productId];
+    }
+}
+
+function saveAllPrices() {
+    if (Object.keys(changedPrices).length === 0) {
+        alert('No changes to save');
+        return;
+    }
+
+    // Show loading indicator
+    const saveBtn = event.target;
+    const originalText = saveBtn.innerHTML;
+    saveBtn.innerHTML = '💾 Saving...';
+    saveBtn.disabled = true;
+
+    fetch('{{ url_for("update_price_list") }}', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(changedPrices)
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            // Update original values
+            for (let [productId, newPrice] of Object.entries(changedPrices)) {
+                const input = document.querySelector(`.price-input[data-product-id="${productId}"]`);
+                if (input) {
+                    input.dataset.original = newPrice;
+                    input.classList.remove('changed');
+                }
+            }
+            changedPrices = {};
+
+            // Show success message
+            showSaveIndicator('✓ Price list updated successfully!');
+        } else {
+            alert('Error saving prices: ' + (data.error || 'Unknown error'));
+        }
+    })
+    .catch(error => {
+        alert('Error saving prices: ' + error);
+    })
+    .finally(() => {
+        saveBtn.innerHTML = originalText;
+        saveBtn.disabled = false;
+    });
+}
+
+function showSaveIndicator(message) {
+    const indicator = document.createElement('div');
+    indicator.className = 'save-indicator';
+    indicator.innerHTML = message;
+    document.body.appendChild(indicator);
+    indicator.style.display = 'block';
+
+    setTimeout(() => {
+        indicator.style.opacity = '0';
+        setTimeout(() => indicator.remove(), 300);
+    }, 3000);
+}
+
+function exportPriceList() {
+    window.location.href = '{{ url_for("export_price_list") }}';
+}
+
+function resetPrices() {
+    if (confirm('Are you sure you want to reset all prices to default? This action cannot be undone.')) {
+        fetch('{{ url_for("reset_price_list") }}', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                location.reload();
+            } else {
+                alert('Error resetting prices');
+            }
+        });
+    }
+}
+
+function editProduct(productId) {
+    // You can implement a modal to edit product details
+    window.location.href = `{{ url_for("products") }}?edit=${productId}`;
+}
+
+// Search functionality
+document.getElementById('searchInput').addEventListener('keyup', function() {
+    const searchTerm = this.value.toLowerCase();
+    const rows = document.querySelectorAll('#priceListBody tr');
+
+    rows.forEach(row => {
+        const sku = row.dataset.sku.toLowerCase();
+        const name = row.dataset.name.toLowerCase();
+        if (sku.includes(searchTerm) || name.includes(searchTerm)) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+});
+
+// Filter functionality
+document.getElementById('categoryFilter').addEventListener('change', function() {
+    const filter = this.value;
+    const rows = document.querySelectorAll('#priceListBody tr');
+
+    rows.forEach(row => {
+        const mainStock = parseFloat(row.cells[4].innerText);
+        const salesStock = parseFloat(row.cells[5].innerText);
+        const totalStock = mainStock + salesStock;
+
+        if (filter === 'all') {
+            row.style.display = '';
+        } else if (filter === 'low_stock' && totalStock < 10 && totalStock > 0) {
+            row.style.display = '';
+        } else if (filter === 'out_of_stock' && totalStock === 0) {
+            row.style.display = '';
+        } else if (filter === 'in_stock' && totalStock > 0) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+});
+
+function sortProducts() {
+    const sortBy = document.getElementById('sortBy').value;
+    const tbody = document.getElementById('priceListBody');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+
+    rows.sort((a, b) => {
+        if (sortBy === 'name') {
+            return a.dataset.name.localeCompare(b.dataset.name);
+        } else if (sortBy === 'sku') {
+            return a.dataset.sku.localeCompare(b.dataset.sku);
+        } else if (sortBy === 'price_low') {
+            const priceA = parseFloat(a.querySelector('.price-input').value);
+            const priceB = parseFloat(b.querySelector('.price-input').value);
+            return priceA - priceB;
+        } else if (sortBy === 'price_high') {
+            const priceA = parseFloat(a.querySelector('.price-input').value);
+            const priceB = parseFloat(b.querySelector('.price-input').value);
+            return priceB - priceA;
+        } else if (sortBy === 'stock') {
+            const stockA = parseFloat(a.cells[4].innerText) + parseFloat(a.cells[5].innerText);
+            const stockB = parseFloat(b.cells[4].innerText) + parseFloat(b.cells[5].innerText);
+            return stockB - stockA;
+        }
+        return 0;
+    });
+
+    rows.forEach(row => tbody.appendChild(row));
+}
+
+function showBulkDiscountModal() {
+    document.getElementById('bulkDiscountModal').style.display = 'flex';
+}
+
+function applyBulkDiscount() {
+    document.getElementById('bulkDiscountModal').style.display = 'flex';
+}
+
+function toggleDiscountMode() {
+    const type = document.getElementById('discountType').value;
+    const input = document.getElementById('discountValue');
+    input.placeholder = type === 'percentage' ? 'Enter percentage (0-100)' : `Enter amount (${currencySymbol})`;
+}
+
+function applyDiscount() {
+    const discountType = document.getElementById('discountType').value;
+    const discountValue = parseFloat(document.getElementById('discountValue').value);
+    const scope = document.getElementById('discountScope').value;
+
+    if (isNaN(discountValue) || discountValue <= 0) {
+        alert('Please enter a valid discount value');
+        return;
+    }
+
+    const rows = document.querySelectorAll('#priceListBody tr');
+    let updatedCount = 0;
+
+    rows.forEach(row => {
+        let apply = false;
+
+        if (scope === 'all') {
+            apply = true;
+        } else if (scope === 'selected') {
+            // You can implement checkbox selection for this
+            apply = true;
+        } else if (scope === 'low_stock') {
+            const mainStock = parseFloat(row.cells[4].innerText);
+            const salesStock = parseFloat(row.cells[5].innerText);
+            const totalStock = mainStock + salesStock;
+            if (totalStock < 10 && totalStock > 0) {
+                apply = true;
+            }
+        }
+
+        if (apply) {
+            const priceInput = row.querySelector('.price-input');
+            let currentPrice = parseFloat(priceInput.value);
+            let newPrice;
+
+            if (discountType === 'percentage') {
+                newPrice = currentPrice * (1 - discountValue / 100);
+            } else {
+                newPrice = currentPrice - discountValue;
+            }
+
+            // Ensure price doesn't go below 0
+            newPrice = Math.max(0, newPrice);
+            priceInput.value = newPrice.toFixed(2);
+            markAsChanged(priceInput);
+            updatedCount++;
+        }
+    });
+
+    document.getElementById('bulkDiscountModal').style.display = 'none';
+    alert(`Discount applied to ${updatedCount} products! Don't forget to save changes.`);
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+    const modal = document.getElementById('bulkDiscountModal');
+    if (event.target == modal) {
+        modal.style.display = 'none';
+    }
+}
+</script>
+{% endblock %}

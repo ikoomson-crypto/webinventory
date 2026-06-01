@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Suppliers</h1>
+    <div style="display: flex; gap: 10px;">
+        <a href="{{ url_for('export_suppliers') }}" class="btn-primary" style="background: #28a745;">📥 Export to Excel</a>
+        <button onclick="document.getElementById('importModal').style.display='flex'" class="btn-primary" style="background: #17a2b8;">📤 Import from Excel</button>
+    </div>
+</div>
+
+<!-- Import Modal -->
+<div id="importModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
+        <h3>Import Suppliers from Excel</h3>
+        <form method="POST" action="{{ url_for('import_suppliers') }}" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>Select Excel File</label>
+                <input type="file" name="file" accept=".xlsx,.xls" required>
+                <small style="color: #666;">File should have columns: Name, Telephone, Address</small>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="submit">Import</button>
+                <button type="button" onclick="document.getElementById('importModal').style.display='none'" class="btn-danger">Cancel</button>
+            </div>
+        </form>
+        <div style="margin-top: 15px;">
+            <a href="{{ url_for('export_suppliers') }}" style="color: #667eea;">Download template →</a>
+        </div>
+    </div>
+</div>
+
+<div class="form-container">
+    <h3>Add New Supplier</h3>
+    <form method="POST" action="{{ url_for('add_supplier') }}">
+        <div class="form-group">
+            <label>Supplier Name</label>
+            <input type="text" name="name" required>
+        </div>
+        <div class="form-group">
+            <label>Telephone</label>
+            <input type="text" name="telephone" required>
+        </div>
+        <div class="form-group">
+            <label>Address</label>
+            <textarea name="address" required></textarea>
+        </div>
+        <button type="submit">Add Supplier</button>
+    </form>
+</div>
+
+<table>
+    <thead>
+        <tr>
+            <th>Name</th>
+            <th>Telephone</th>
+            <th>Address</th>
+            <th>Created</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for supplier in suppliers %}
+        <tr>
+            <td>{{ supplier.name }}</td>
+            <td>{{ supplier.telephone }}</td>
+            <td>{{ supplier.address }}</td>
+            <td>{{ supplier.created_at.strftime('%Y-%m-%d') if supplier.created_at else '-' }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<script>
+// Close modal when clicking outside
+window.onclick = function(event) {
+    const modal = document.getElementById('importModal');
+    if (event.target == modal) {
+        modal.style.display = 'none';
+    }
+}
+</script>
+{% endblock %}

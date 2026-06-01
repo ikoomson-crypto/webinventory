@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h1>Dashboard</h1>
+
+<div class="dashboard-cards">
+    <div class="card">
+        <h3>Total Products</h3>
+        <div class="value">{{ total_products|format_number }}</div>
+    </div>
+    <div class="card">
+        <h3>Total Suppliers</h3>
+        <div class="value">{{ total_suppliers|format_number }}</div>
+    </div>
+    <div class="card">
+        <h3>Total Customers</h3>
+        <div class="value">{{ total_customers|format_number }}</div>
+    </div>
+    <div class="card">
+        <h3>Stock Value</h3>
+        <div class="value">{{ currency_symbol }}{{ total_stock_value|round(2)|format_number }}</div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;">
+    <div>
+        <h2>Recent Purchases</h2>
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr style="background: #f8f9fa;">
+                        <th>Date</th>
+                        <th>Product</th>
+                        <th class="text-right">Quantity</th>
+                        <th class="text-right">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for purchase in recent_purchases %}
+                    <tr>
+                        <td>{{ purchase.purchase_date.strftime('%Y-%m-%d') }}</td>
+                        <td>{{ purchase.product.name }}</td>
+                        <td class="text-right">{{ purchase.quantity|format_number }}</td>
+                        <td class="text-right">{{ currency_symbol }}{{ purchase.total_cost|round(2)|format_number }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="4" style="text-align: center; color: #666;">No recent purchases</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div>
+        <h2>Recent Sales</h2>
+        <div style="overflow-x: auto;">
+            <table>
+                <thead>
+                    <tr style="background: #f8f9fa;">
+                        <th>Date</th>
+                        <th>Product</th>
+                        <th class="text-right">Quantity</th>
+                        <th class="text-right">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for sale in recent_sales %}
+                    <tr>
+                        <td>{{ sale.sale_date.strftime('%Y-%m-%d') }}</td>
+                        <td>{{ sale.product.name }}</td>
+                        <td class="text-right">{{ sale.quantity|format_number }}</td>
+                        <td class="text-right">{{ currency_symbol }}{{ sale.total_amount|round(2)|format_number }}</td>
+                    </tr>
+                    {% else %}
+                    <tr>
+                        <td colspan="4" style="text-align: center; color: #666;">No recent sales</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div style="margin-top: 20px;">
+    <h2>Recent Store Movements</h2>
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr style="background: #f8f9fa;">
+                    <th>Date</th>
+                    <th>Product</th>
+                    <th class="text-right">Quantity</th>
+                    <th>From</th>
+                    <th>To</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for movement in recent_movements %}
+                <tr>
+                    <td>{{ movement.movement_date.strftime('%Y-%m-%d') }}</td>
+                    <td>{{ movement.product.name }}</td>
+                    <td class="text-right">{{ movement.quantity|format_number }}</td>
+                    <td>{{ movement.from_store|capitalize }}</td>
+                    <td>{{ movement.to_store|capitalize }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" style="text-align: center; color: #666;">No recent store movements</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+    .text-right {
+        text-align: right;
+    }
+
+    table {
+        width: 100%;
+        background: white;
+        border-radius: 10px;
+        overflow: hidden;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        margin-top: 10px;
+        border-collapse: collapse;
+    }
+
+    th {
+        background: #f8f9fa;
+        padding: 12px;
+        font-weight: 600;
+        color: #555;
+        border-bottom: 2px solid #dee2e6;
+    }
+
+    td {
+        padding: 12px;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    tr:hover {
+        background: #f8f9fa;
+    }
+
+    @media (max-width: 768px) {
+        table {
+            font-size: 12px;
+        }
+
+        th, td {
+            padding: 8px;
+        }
+    }
+</style>
+{% endblock %}
