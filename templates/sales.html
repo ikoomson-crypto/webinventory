@@ -42,17 +42,16 @@
                 <label>Select Excel File</label>
                 <input type="file" name="file" accept=".xlsx,.xls" required>
                 <small style="color: #666; display: block; margin-top: 5px;">
-                    File should have columns: Product SKU, Customer Name, Quantity, Selling Price, Store Source, Sale Date (optional), Receipt No (optional), Discount % (optional), Notes (optional)
+                    File should have columns: Item Code, Customer Name, Quantity, Selling Price, Store Source, Sale Date (optional), Receipt No (optional), Discount % (optional), Notes (optional)
                 </small>
             </div>
 
             <div style="background: #e7f3ff; padding: 15px; border-radius: 5px; margin: 15px 0;">
                 <h4 style="margin-bottom: 10px;">📋 Instructions:</h4>
                 <ul style="margin-left: 20px; color: #666; font-size: 13px;">
-                    <li>Product SKU must match existing products in the system</li>
+                    <li>Item Code must match existing items in the Price List</li>
                     <li>Customer Name must match existing customers</li>
                     <li>Store Source must be "main_store" or "sales_store"</li>
-                    <li>System will check stock availability before importing</li>
                     <li>Quantity and Selling Price must be numeric values</li>
                     <li>Discount % is optional (0-100)</li>
                 </ul>
@@ -61,7 +60,7 @@
             <div style="background: #fff3cd; padding: 15px; border-radius: 5px; margin: 15px 0;">
                 <h4 style="margin-bottom: 10px; color: #856404;">⚠️ Important Notes:</h4>
                 <ul style="margin-left: 20px; color: #856404; font-size: 13px;">
-                    <li>Stock levels will be automatically reduced</li>
+                    <li>Stock levels will be automatically reduced from selected store</li>
                     <li>Ensure sufficient stock before importing</li>
                     <li>Import is atomic - errors won't affect successful rows</li>
                     <li>Admin only feature for security</li>
@@ -71,7 +70,7 @@
             <div style="display: flex; gap: 10px; margin-top: 20px;">
                 <button type="submit">Import Sales</button>
                 <button type="button" onclick="closeBulkImportModal()" class="btn-danger">Cancel</button>
-                <button type="button" onclick="downloadSalesTemplate()" class="btn-primary" style="background: #28a745; text-decoration: none; display: inline-flex; align-items: center;">📥 Download Template</button>
+                <button type="button" onclick="downloadSalesTemplate()" class="btn-primary" style="background: #28a745;">📥 Download Template</button>
             </div>
         </form>
     </div>
@@ -105,42 +104,40 @@
 
         <div class="form-group">
             <label>Source Store <span style="color: red;">*</span></label>
-            <select name="source" id="bulk_source" required onchange="updateAllStockAvailability()">
+            <select name="source" id="bulk_source" required>
                 <option value="main_store">Main Store (Warehouse)</option>
                 <option value="sales_store">Sales Store (Retail)</option>
             </select>
         </div>
 
-        <h4 style="margin: 20px 0 10px 0;">Sale Items</h4>
+        <h4 style="margin: 20px 0 10px 0;">Sale Items (from Price List)</h4>
         <div id="saleItems">
             <div class="item-row">
-                <div style="display: grid; grid-template-columns: 3fr 1fr 1fr 0.5fr; gap: 10px; align-items: center;">
+                <div style="display: grid; grid-template-columns: 3fr 1fr 1fr 1fr 0.5fr; gap: 10px; align-items: center;">
                     <div class="form-group">
-                        <label style="font-size: 12px;">Product</label>
-                        <select name="product_id[]" class="product-select" required onchange="checkStock(this); autoPopulatePrice(this)">
-                            <option value="">Select Product</option>
-                            {% for product in products %}
-                            <option value="{{ product.id }}"
-                                    data-price="{{ product.unit_price }}"
-                                    data-main-stock="{{ product.current_quantity_main }}"
-                                    data-sales-stock="{{ product.current_quantity_sales }}">
-                                {% if product.sales_description %}
-                                    {{ product.sales_description }} - {{ product.name }}
-                                {% else %}
-                                    {{ product.name }}
-                                {% endif %}
-                                (Stock: {{ product.current_quantity_main + product.current_quantity_sales }})
+                        <label style="font-size: 12px;">Item</label>
+                        <select name="price_list_item_id[]" class="price-list-select" required onchange="autoPopulatePrice(this)">
+                            <option value="">Select Item</option>
+                            {% for item in price_list_items %}
+                            <option value="{{ item.id }}"
+                                    data-price="{{ item.unit_price }}"
+                                    data-item-code="{{ item.item_code }}">
+                                {{ item.item_name }} ({{ item.item_code }}) - Price: {{ currency_symbol }}{{ item.unit_price|round(2)|format_number }}
                             </option>
                             {% endfor %}
                         </select>
                     </div>
                     <div class="form-group">
                         <label style="font-size: 12px;">Quantity</label>
-                        <input type="number" step="0.01" name="quantity[]" class="quantity" required onchange="calculateItemTotal(this)">
+                        <input type="number" step="0.01" name="quantity[]" class="quantity" required placeholder="0.00">
                     </div>
                     <div class="form-group">
                         <label style="font-size: 12px;">Unit Price ({{ currency_symbol }})</label>
-                        <input type="number" step="0.01" name="selling_price[]" class="selling-price" required onchange="calculateItemTotal(this)">
+                        <input type="number" step="0.01" name="selling_price[]" class="selling-price" required placeholder="0.00">
+                    </div>
+                    <div class="form-group">
+                        <label style="font-size: 12px;">Total ({{ currency_symbol }})</label>
+                        <input type="text" class="item-total" readonly style="background: #f8f9fa; font-weight: bold;">
                     </div>
                     <div>
                         <button type="button" onclick="removeItem(this)" class="btn-danger" style="margin-top: 22px;">✗</button>
@@ -202,6 +199,18 @@
     </form>
 </div>
 
+<!-- Price List Information Panel -->
+<div class="form-container" style="background: #e7f3ff;">
+    <h4>ℹ️ Price List Information</h4>
+    <p style="margin: 5px 0; font-size: 14px;">
+        <strong>Items are sourced from the Price List master.</strong>
+        To add or edit sellable items, go to <a href="{{ url_for('price_list_items') }}" style="color: #667eea;">Price List Items</a>.
+    </p>
+    <p style="margin: 5px 0; font-size: 14px; color: #666;">
+        The Price List contains all items available for sale with their selling prices.
+    </p>
+</div>
+
 <!-- Recent Sales List -->
 <h2>Recent Sales</h2>
 <div style="overflow-x: auto;">
@@ -210,7 +219,8 @@
             <tr style="background: #2c3e50; color: white;">
                 <th>Date</th>
                 <th>Receipt #</th>
-                <th>Product</th>
+                <th>Item Code</th>
+                <th>Item Name</th>
                 <th>Customer</th>
                 <th class="text-right">Qty</th>
                 <th class="text-right">Price</th>
@@ -224,11 +234,12 @@
             <tr>
                 <td>{{ sale.sale_date.strftime('%Y-%m-%d') }}</td>
                 <td>{{ sale.receipt_no or '-' }}</td>
+                <td>{{ sale.price_list_item.item_code if sale.price_list_item else '-' }}</td>
                 <td>
-                    {% if sale.product.sales_description %}
-                        {{ sale.product.sales_description }} - {{ sale.product.name }}
-                    {% else %}
-                        {{ sale.product.name }}
+                    {% if sale.price_list_item %}
+                        {{ sale.price_list_item.item_name }}
+                    else %}
+                        {{ sale.product.name if sale.product else '-' }}
                     {% endif %}
                 </td>
                 <td>{{ sale.customer.name }}</td>
@@ -240,14 +251,14 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="9" style="text-align: center; padding: 40px;">No sales recorded yet</td>
+                <td colspan="10" style="text-align: center; padding: 40px;">No sales recorded yet</td>
             </tr>
             {% endfor %}
         </tbody>
         {% if sales %}
         <tfoot style="background: #f8f9fa; font-weight: bold;">
             <tr>
-                <td colspan="4"><strong>TOTAL</strong></td>
+                <td colspan="5"><strong>TOTAL</strong></td>
                 <td class="text-right"><strong>{{ sales|sum(attribute='quantity')|format_number }}</strong></td>
                 <td colspan="2"></td>
                 <td class="text-right"><strong>{{ currency_symbol }}{{ sales|sum(attribute='total_amount')|round(2)|format_number }}</strong></td>
@@ -311,11 +322,11 @@
 <script>
 let currencySymbol = '{{ currency_symbol }}';
 
-function autoPopulatePrice(element) {
-    const selectedOption = element.options[element.selectedIndex];
+function autoPopulatePrice(selectElement) {
+    const selectedOption = selectElement.options[selectElement.selectedIndex];
     if (selectedOption.value) {
         const price = parseFloat(selectedOption.dataset.price) || 0;
-        const row = element.closest('.item-row');
+        const row = selectElement.closest('.item-row');
         const priceInput = row.querySelector('.selling-price');
 
         if (priceInput) {
@@ -325,36 +336,15 @@ function autoPopulatePrice(element) {
     }
 }
 
-function checkStock(select) {
-    const row = select.closest('.item-row');
-    const sourceStore = document.getElementById('bulk_source').value;
-    const selectedOption = select.options[select.selectedIndex];
-    const quantityInput = row.querySelector('.quantity');
-
-    if (selectedOption.value) {
-        let maxStock = sourceStore === 'main_store' ?
-            parseFloat(selectedOption.dataset.mainStock) || 0 :
-            parseFloat(selectedOption.dataset.salesStock) || 0;
-
-        quantityInput.max = maxStock;
-
-        const currentQty = parseFloat(quantityInput.value) || 0;
-        if (currentQty > maxStock) {
-            quantityInput.value = maxStock;
-            alert(`Only ${maxStock} units available in ${sourceStore === 'main_store' ? 'Main Store' : 'Sales Store'}`);
-            calculateItemTotal(quantityInput);
-        }
-    }
-}
-
 function addSaleItem() {
     const container = document.getElementById('saleItems');
     const template = document.querySelector('#saleItems .item-row').cloneNode(true);
 
     // Clear input values
-    template.querySelector('.product-select').value = '';
+    template.querySelector('.price-list-select').value = '';
     template.querySelector('.quantity').value = '';
     template.querySelector('.selling-price').value = '';
+    template.querySelector('.item-total').value = '';
 
     // Add remove button functionality
     const removeBtn = template.querySelector('button');
@@ -387,16 +377,19 @@ function calculateItemTotal(input) {
     const row = input.closest('.item-row');
     const quantity = parseFloat(row.querySelector('.quantity').value) || 0;
     const price = parseFloat(row.querySelector('.selling-price').value) || 0;
+    const total = quantity * price;
+
+    const totalInput = row.querySelector('.item-total');
+    totalInput.value = total.toFixed(2);
+
     calculateTotal();
     calculateGrandTotal();
 }
 
 function calculateTotal() {
     let subtotal = 0;
-    document.querySelectorAll('.item-row').forEach(row => {
-        const quantity = parseFloat(row.querySelector('.quantity').value) || 0;
-        const price = parseFloat(row.querySelector('.selling-price').value) || 0;
-        subtotal += quantity * price;
+    document.querySelectorAll('.item-total').forEach(totalInput => {
+        subtotal += parseFloat(totalInput.value) || 0;
     });
     document.getElementById('subtotal').innerHTML = currencySymbol + subtotal.toFixed(2);
     return subtotal;
@@ -417,12 +410,7 @@ function calculateGrandTotal() {
     document.getElementById('grandTotal').innerHTML = currencySymbol + grandTotal.toFixed(2);
 }
 
-function updateAllStockAvailability() {
-    document.querySelectorAll('.product-select').forEach(select => checkStock(select));
-}
-
 // Event listeners
-document.getElementById('bulk_source')?.addEventListener('change', updateAllStockAvailability);
 document.getElementById('discount')?.addEventListener('input', calculateGrandTotal);
 document.getElementById('tax_rate')?.addEventListener('input', calculateGrandTotal);
 
@@ -466,11 +454,11 @@ document.getElementById('bulkSaleForm')?.addEventListener('submit', function(e) 
     let hasItems = false;
 
     items.forEach(item => {
-        const product = item.querySelector('.product-select').value;
+        const priceListItem = item.querySelector('.price-list-select').value;
         const quantity = item.querySelector('.quantity').value;
         const price = item.querySelector('.selling-price').value;
 
-        if (product && quantity && price && parseFloat(quantity) > 0) {
+        if (priceListItem && quantity && price && parseFloat(quantity) > 0) {
             hasItems = true;
         }
     });

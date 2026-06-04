@@ -1,0 +1,280 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="page-header">
+    <h1>Price List Items (Sellable Items)</h1>
+    <div style="display: flex; gap: 10px;">
+        <button onclick="showAddItemModal()" class="btn-primary" style="background: #28a745;">➕ Add New Item</button>
+        <a href="{{ url_for('export_price_list_items') }}" class="btn-primary" style="background: #17a2b8;">📥 Export to Excel</a>
+    </div>
+</div>
+
+<div class="form-container">
+    <div style="margin-bottom: 15px;">
+        <input type="text" id="searchInput" placeholder="🔍 Search by item code or name..." style="width: 300px;">
+    </div>
+
+    <div style="overflow-x: auto;">
+        <table class="items-table">
+            <thead>
+                <tr style="background: #2c3e50; color: white;">
+                    <th>Item Code</th>
+                    <th>Item Name (Sales Description)</th>
+                    <th>Description</th>
+                    <th class="text-right">Unit Price ({{ currency_symbol }})</th>
+                    <th>Status</th>
+                    <th style="width: 100px;">Actions</th>
+                </tr>
+            </thead>
+            <tbody id="itemsTableBody">
+                {% for item in items %}
+                <tr data-item-id="{{ item.id }}" data-item-code="{{ item.item_code }}" data-item-name="{{ item.item_name }}"
+                    data-description="{{ item.description }}" data-price="{{ item.unit_price }}" data-active="{{ item.is_active }}">
+                    <td><strong>{{ item.item_code }}</strong></td>
+                    <td>{{ item.item_name }}</td>
+                    <td>{{ item.description or '-' }}</td>
+                    <td class="text-right price-cell">{{ currency_symbol }}{{ item.unit_price|round(2)|format_number }}</td>
+                    <td class="text-center">
+                        {% if item.is_active %}
+                        <span class="status-badge status-active">✓ Active</span>
+                        {% else %}
+                        <span class="status-badge status-inactive">✗ Inactive</span>
+                        {% endif %}
+                    </td>
+                    <td class="text-center">
+                        <button onclick="editItem({{ item.id }})" class="btn-small btn-edit">✏️ Edit</button>
+                        <button onclick="deleteItem({{ item.id }}, '{{ item.item_name }}')" class="btn-small btn-delete">🗑️ Delete</button>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="6" style="text-align: center; padding: 40px;">No price list items added yet</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Add Item Modal -->
+<div id="addItemModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
+        <h3>Add New Price List Item</h3>
+        <form method="POST" action="{{ url_for('add_price_list_item') }}">
+            <div class="form-group">
+                <label>Item Code <span style="color: red;">*</span></label>
+                <input type="text" name="item_code" required placeholder="e.g., ITEM-001">
+                <small style="color: #666;">Unique identifier</small>
+            </div>
+            <div class="form-group">
+                <label>Item Name (Sales Description) <span style="color: red;">*</span></label>
+                <input type="text" name="item_name" required placeholder="Customer-friendly name">
+            </div>
+            <div class="form-group">
+                <label>Description (Optional)</label>
+                <textarea name="description" rows="2" placeholder="Additional details..."></textarea>
+            </div>
+            <div class="form-group">
+                <label>Unit Price ({{ currency_symbol }}) <span style="color: red;">*</span></label>
+                <input type="number" step="0.01" name="unit_price" required placeholder="0.00">
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="submit">Add Item</button>
+                <button type="button" onclick="closeAddModal()" class="btn-danger">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Edit Item Modal -->
+<div id="editItemModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
+        <h3>Edit Price List Item</h3>
+        <form method="POST" action="{{ url_for('update_price_list_item') }}">
+            <input type="hidden" name="item_id" id="edit_item_id">
+            <div class="form-group">
+                <label>Item Code</label>
+                <input type="text" id="edit_item_code" readonly style="background: #f8f9fa;" disabled>
+                <small style="color: #666;">Item code cannot be changed</small>
+            </div>
+            <div class="form-group">
+                <label>Item Name (Sales Description) <span style="color: red;">*</span></label>
+                <input type="text" name="item_name" id="edit_item_name" required>
+            </div>
+            <div class="form-group">
+                <label>Description</label>
+                <textarea name="description" id="edit_description" rows="2"></textarea>
+            </div>
+            <div class="form-group">
+                <label>Unit Price ({{ currency_symbol }}) <span style="color: red;">*</span></label>
+                <input type="number" step="0.01" name="unit_price" id="edit_unit_price" required>
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" name="is_active" id="edit_is_active"> Active (available for sale)
+                </label>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="submit">Update Item</button>
+                <button type="button" onclick="closeEditModal()" class="btn-danger">Cancel</button>
+            </div>
+        <!-- Add this button next to Export button -->
+<button onclick="showImportModal()" class="btn-primary" style="background: #17a2b8;">📤 Import from Excel</button>
+
+<!-- Add Import Modal -->
+<div id="importModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 1000;">
+    <div style="background: white; padding: 30px; border-radius: 10px; max-width: 500px; width: 90%;">
+        <h3>Import Price List Items</h3>
+        <form method="POST" action="{{ url_for('import_price_list_items') }}" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>Select Excel File</label>
+                <input type="file" name="file" accept=".xlsx,.xls" required>
+                <small>File should have columns: Item Code, Item Name, Description, Unit Price</small>
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="submit">Import</button>
+                <button type="button" onclick="closeImportModal()" class="btn-danger">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+        </form>
+    </div>
+</div>
+
+<style>
+    .items-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .items-table th,
+    .items-table td {
+        padding: 12px;
+        border-bottom: 1px solid #dee2e6;
+        vertical-align: middle;
+    }
+
+    .items-table tbody tr:hover {
+        background: #f8f9fa;
+    }
+
+    .btn-small {
+        padding: 5px 10px;
+        font-size: 12px;
+        border: none;
+        border-radius: 3px;
+        cursor: pointer;
+        margin: 0 2px;
+    }
+
+    .btn-edit {
+        background: #007bff;
+        color: white;
+    }
+
+    .btn-edit:hover {
+        background: #0056b3;
+    }
+
+    .btn-delete {
+        background: #dc3545;
+        color: white;
+    }
+
+    .btn-delete:hover {
+        background: #c82333;
+    }
+
+    .text-right {
+        text-align: right;
+    }
+
+    .text-center {
+        text-align: center;
+    }
+
+    .status-badge {
+        display: inline-block;
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 11px;
+        font-weight: bold;
+    }
+
+    .status-active {
+        background: #d4edda;
+        color: #155724;
+    }
+
+    .status-inactive {
+        background: #f8d7da;
+        color: #721c24;
+    }
+
+    #searchInput {
+        padding: 8px 12px;
+        border: 1px solid #ddd;
+        border-radius: 5px;
+        font-size: 14px;
+    }
+</style>
+
+<script>
+function showAddItemModal() {
+    document.getElementById('addItemModal').style.display = 'flex';
+}
+
+function closeAddModal() {
+    document.getElementById('addItemModal').style.display = 'none';
+}
+
+function editItem(itemId) {
+    const row = document.querySelector(`tr[data-item-id="${itemId}"]`);
+
+    document.getElementById('edit_item_id').value = itemId;
+    document.getElementById('edit_item_code').value = row.dataset.itemCode;
+    document.getElementById('edit_item_name').value = row.dataset.itemName;
+    document.getElementById('edit_description').value = row.dataset.description || '';
+    document.getElementById('edit_unit_price').value = row.dataset.price;
+    document.getElementById('edit_is_active').checked = row.dataset.active === 'True';
+
+    document.getElementById('editItemModal').style.display = 'flex';
+}
+
+function closeEditModal() {
+    document.getElementById('editItemModal').style.display = 'none';
+}
+
+function deleteItem(itemId, itemName) {
+    if (confirm(`Are you sure you want to delete "${itemName}"? This action cannot be undone.`)) {
+        window.location.href = `{{ url_for('delete_price_list_item', id=0) }}`.replace('0', itemId);
+    }
+}
+
+// Search functionality
+document.getElementById('searchInput').addEventListener('keyup', function() {
+    const searchTerm = this.value.toLowerCase();
+    const rows = document.querySelectorAll('#itemsTableBody tr');
+
+    rows.forEach(row => {
+        if (!row.cells[0]) return;
+        const code = row.cells[0].innerText.toLowerCase();
+        const name = row.cells[1].innerText.toLowerCase();
+        if (code.includes(searchTerm) || name.includes(searchTerm)) {
+            row.style.display = '';
+        } else {
+            row.style.display = 'none';
+        }
+    });
+});
+
+window.onclick = function(event) {
+    const addModal = document.getElementById('addItemModal');
+    const editModal = document.getElementById('editItemModal');
+    if (event.target == addModal) closeAddModal();
+    if (event.target == editModal) closeEditModal();
+}
+</script>
+{% endblock %}
