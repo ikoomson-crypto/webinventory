@@ -23,7 +23,8 @@ app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
 db = SQLAlchemy(app)
-
+with app.app_context():
+    db.create_all()
 
 # Database Models
 class User(db.Model):
@@ -2387,6 +2388,3 @@ if __name__ == '__main__':
     init_db()
     app.run(debug=True)
 
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port)
