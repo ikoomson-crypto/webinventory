@@ -12,7 +12,6 @@ import io
 from flask import send_file, make_response
 import sqlite3
 
-
 app = Flask(__name__)
 app.secret_key = 'your-secret-key-here-change-in-production'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///inventory.db'
@@ -63,6 +62,19 @@ class Product(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class PriceListItem(db.Model):
+    __tablename__ = 'price_list_item'
+
+    id = db.Column(db.Integer, primary_key=True)
+    item_code = db.Column(db.String(50), unique=True, nullable=False)
+    item_name = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text)
+    unit_price = db.Column(db.Float, default=0.0)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Purchase(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
@@ -78,8 +90,12 @@ class Purchase(db.Model):
 
 
 class Sale(db.Model):
+    __tablename__ = 'sale'
+    __table_args__ = {'extend_existing': True}
+
     id = db.Column(db.Integer, primary_key=True)
-    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=False)
+    product_id = db.Column(db.Integer, db.ForeignKey('product.id'), nullable=True)
+    price_list_item_id = db.Column(db.Integer, db.ForeignKey('price_list_item.id'), nullable=True)
     customer_id = db.Column(db.Integer, db.ForeignKey('customer.id'), nullable=False)
     quantity = db.Column(db.Float, nullable=False)
     selling_price = db.Column(db.Float, nullable=False)
@@ -89,8 +105,11 @@ class Sale(db.Model):
     notes = db.Column(db.Text)
     receipt_no = db.Column(db.String(100), default='')
     discount = db.Column(db.Float, default=0)
-    product = db.relationship('Product', backref='sales')
+
+    # Relationships
+    product = db.relationship('Product', backref='sales', foreign_keys=[product_id])
     customer = db.relationship('Customer', backref='sales')
+    price_list_item = db.relationship('PriceListItem', backref='sales_items', foreign_keys=[price_list_item_id])
 
 
 class StoreMovement(db.Model):
@@ -132,7 +151,7 @@ class SystemLog(db.Model):
 class Requisition(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     requisition_no = db.Column(db.String(50), unique=True, nullable=False)
-    customer = db.Column(db.String(100), nullable=False)
+    customer = db.Column(db.String(100), nullable=True)
     source_store = db.Column(db.String(20), nullable=False, default='main')
     requested_by = db.Column(db.String(100), nullable=False)
     requested_by_role = db.Column(db.String(50), default='inventory')
@@ -228,6 +247,16 @@ def upgrade_database():
             print("sales_description column already exists")
         else:
             print(f"Error adding sales_description: {e}")
+
+    # Add price_list_item_id column to sale table
+    try:
+        cursor.execute("ALTER TABLE sale ADD COLUMN price_list_item_id INTEGER REFERENCES price_list_item(id)")
+        print("Added price_list_item_id column to sale table")
+    except sqlite3.OperationalError as e:
+        if "duplicate column name" in str(e):
+            print("price_list_item_id column already exists")
+        else:
+            print(f"Error adding price_list_item_id: {e}")
 
     # Check if requisition table exists and add missing columns
     cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='requisition'")
@@ -463,6 +492,124 @@ def delete_product(id):
     return redirect(url_for('products'))
 
 
+# ============= PRICE LIST ITEMS MANAGEMENT =============
+
+@app.route('/price_list_items')
+@login_required
+def price_list_items():
+    """Display all price list items"""
+    items = PriceListItem.query.order_by(PriceListItem.item_name).all()
+    company_settings = get_company_settings()
+    return render_template('price_list_items.html', items=items, company_settings=company_settings)
+
+
+@app.route('/add_price_list_item', methods=['POST'])
+@login_required
+def add_price_list_item():
+    """Add new price list item"""
+    item_code = request.form['item_code']
+    item_name = request.form['item_name']
+    description = request.form.get('description', '')
+    unit_price = float(request.form['unit_price'])
+
+    existing = PriceListItem.query.filter_by(item_code=item_code).first()
+    if existing:
+        flash('Item code already exists', 'error')
+        return redirect(url_for('price_list_items'))
+
+    item = PriceListItem(
+        item_code=item_code,
+        item_name=item_name,
+        description=description,
+        unit_price=unit_price
+    )
+    db.session.add(item)
+    db.session.commit()
+
+    log_action(session['user_id'], 'Add Price List Item', f'Added item: {item_name} (Code: {item_code})',
+               request.remote_addr)
+    flash('Price list item added successfully', 'success')
+    return redirect(url_for('price_list_items'))
+
+
+@app.route('/update_price_list_item', methods=['POST'])
+@login_required
+def update_price_list_item():
+    """Update price list item"""
+    item_id = int(request.form['item_id'])
+    item_name = request.form['item_name']
+    description = request.form.get('description', '')
+    unit_price = float(request.form['unit_price'])
+    is_active = request.form.get('is_active') == 'on'
+
+    item = PriceListItem.query.get_or_404(item_id)
+    item.item_name = item_name
+    item.description = description
+    item.unit_price = unit_price
+    item.is_active = is_active
+
+    db.session.commit()
+
+    log_action(session['user_id'], 'Update Price List Item', f'Updated item: {item.item_name}', request.remote_addr)
+    flash('Price list item updated successfully', 'success')
+    return redirect(url_for('price_list_items'))
+
+
+@app.route('/delete_price_list_item/<int:id>')
+@login_required
+@admin_required
+def delete_price_list_item(id):
+    """Delete price list item"""
+    item = PriceListItem.query.get_or_404(id)
+    item_name = item.item_name
+
+    db.session.delete(item)
+    db.session.commit()
+
+    log_action(session['user_id'], 'Delete Price List Item', f'Deleted item: {item_name}', request.remote_addr)
+    flash('Price list item deleted successfully', 'success')
+    return redirect(url_for('price_list_items'))
+
+
+@app.route('/export_price_list_items')
+@login_required
+def export_price_list_items():
+    """Export price list items to Excel"""
+    items = PriceListItem.query.order_by(PriceListItem.item_name).all()
+    data = []
+    for item in items:
+        data.append({
+            'Item Code': item.item_code,
+            'Item Name': item.item_name,
+            'Description': item.description or '',
+            'Unit Price': item.unit_price,
+            'Status': 'Active' if item.is_active else 'Inactive',
+            'Created Date': item.created_at.strftime('%Y-%m-%d %H:%M:%S') if item.created_at else ''
+        })
+
+    df = pd.DataFrame(data)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Price List Items', index=False)
+        worksheet = writer.sheets['Price List Items']
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+
+    output.seek(0)
+    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                     as_attachment=True,
+                     download_name=f'price_list_items_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx')
+
+
 # Purchasing
 @app.route('/purchases')
 @login_required
@@ -543,37 +690,42 @@ def sales():
     sales = Sale.query.order_by(Sale.sale_date.desc()).all()
     products = Product.query.all()
     customers = Customer.query.all()
+    price_list_items = PriceListItem.query.filter_by(is_active=True).order_by(PriceListItem.item_name).all()
     company_settings = get_company_settings()
-    return render_template('sales.html', sales=sales, products=products, customers=customers,
+    return render_template('sales.html',
+                           sales=sales,
+                           products=products,
+                           customers=customers,
+                           price_list_items=price_list_items,
                            company_settings=company_settings)
 
 
 @app.route('/add_sale', methods=['POST'])
 @login_required
 def add_sale():
-    product_id = int(request.form['product_id'])
+    price_list_item_id = int(request.form['price_list_item_id'])
     customer_id = int(request.form['customer_id'])
     quantity = float(request.form['quantity'])
     selling_price = float(request.form['selling_price'])
     source = request.form['source']
     notes = request.form.get('notes', '')
     total_amount = quantity * selling_price
-    product = Product.query.get(product_id)
-    if source == 'main_store' and product.current_quantity_main < quantity:
-        flash('Insufficient stock in Main Store', 'error')
-        return redirect(url_for('sales'))
-    elif source == 'sales_store' and product.current_quantity_sales < quantity:
-        flash('Insufficient stock in Sales Store', 'error')
-        return redirect(url_for('sales'))
-    if source == 'main_store':
-        product.current_quantity_main -= quantity
-    else:
-        product.current_quantity_sales -= quantity
-    sale = Sale(product_id=product_id, customer_id=customer_id, quantity=quantity,
-                selling_price=selling_price, total_amount=total_amount, source=source, notes=notes)
+
+    price_item = PriceListItem.query.get(price_list_item_id)
+
+    sale = Sale(
+        price_list_item_id=price_list_item_id,
+        customer_id=customer_id,
+        quantity=quantity,
+        selling_price=selling_price,
+        total_amount=total_amount,
+        source=source,
+        notes=notes
+    )
     db.session.add(sale)
     db.session.commit()
-    log_action(session['user_id'], 'Add Sale', f'Sold {quantity} of {product.name} from {source}', request.remote_addr)
+    log_action(session['user_id'], 'Add Sale', f'Sold {quantity} of {price_item.item_name} from {source}',
+               request.remote_addr)
     flash('Sale recorded successfully', 'success')
     return redirect(url_for('sales'))
 
@@ -590,46 +742,49 @@ def add_sale_bulk():
     payment_method = request.form.get('payment_method', 'cash')
     notes = request.form.get('notes', '')
     currency_symbol = get_currency_symbol()
-    product_ids = request.form.getlist('product_id[]')
+
+    price_list_item_ids = request.form.getlist('price_list_item_id[]')
     quantities = request.form.getlist('quantity[]')
     selling_prices = request.form.getlist('selling_price[]')
+
     total_sale_amount = 0
     sales_created = []
     errors = []
-    for i in range(len(product_ids)):
-        if product_ids[i] and quantities[i] and selling_prices[i]:
-            product_id = int(product_ids[i])
+
+    for i in range(len(price_list_item_ids)):
+        if price_list_item_ids[i] and quantities[i] and selling_prices[i]:
+            price_list_item_id = int(price_list_item_ids[i])
             quantity = float(quantities[i])
             selling_price = float(selling_prices[i])
             item_total = quantity * selling_price
-            product = Product.query.get(product_id)
-            if source == 'main_store' and product.current_quantity_main < quantity:
-                errors.append(
-                    f"Insufficient stock for {product.name} in Main Store. Available: {product.current_quantity_main}")
-                continue
-            elif source == 'sales_store' and product.current_quantity_sales < quantity:
-                errors.append(
-                    f"Insufficient stock for {product.name} in Sales Store. Available: {product.current_quantity_sales}")
-                continue
-            if source == 'main_store':
-                product.current_quantity_main -= quantity
-            else:
-                product.current_quantity_sales -= quantity
             total_sale_amount += item_total
-            sale = Sale(product_id=product_id, customer_id=customer_id, quantity=quantity,
-                        selling_price=selling_price, total_amount=item_total, sale_date=sale_date,
-                        source=source, receipt_no=receipt_no, discount=discount_percent,
-                        notes=f"Receipt: {receipt_no}\nPayment: {payment_method}\n{notes}")
+
+            sale = Sale(
+                price_list_item_id=price_list_item_id,
+                customer_id=customer_id,
+                quantity=quantity,
+                selling_price=selling_price,
+                total_amount=item_total,
+                sale_date=sale_date,
+                source=source,
+                receipt_no=receipt_no,
+                discount=discount_percent,
+                notes=f"Receipt: {receipt_no}\nPayment: {payment_method}\n{notes}"
+            )
             db.session.add(sale)
             sales_created.append(sale)
+
     if sales_created:
         discount_amount = total_sale_amount * (discount_percent / 100)
         after_discount = total_sale_amount - discount_amount
         tax_amount = after_discount * (tax_percent / 100)
         grand_total = after_discount + tax_amount
+
+        # Update each sale with proportional total
         for sale in sales_created:
             proportion = sale.total_amount / total_sale_amount if total_sale_amount > 0 else 0
             sale.total_amount = grand_total * proportion
+
         db.session.commit()
         log_action(session['user_id'], 'Bulk Sale',
                    f'Processed sale {receipt_no} with {len(sales_created)} items, Total: {currency_symbol}{grand_total:.2f}',
@@ -690,7 +845,81 @@ def add_movement():
     return redirect(url_for('movements'))
 
 
-# Price List Management
+@app.route('/add_movement_bulk', methods=['POST'])
+@login_required
+def add_movement_bulk():
+    """Handle bulk store movements with multiple items"""
+    movement_date = datetime.strptime(request.form['movement_date'], '%Y-%m-%d')
+    reference = request.form.get('reference', '')
+    notes = request.form.get('notes', '')
+
+    product_ids = request.form.getlist('product_id[]')
+    quantities = request.form.getlist('quantity[]')
+    from_stores = request.form.getlist('from_store[]')
+    to_stores = request.form.getlist('to_store[]')
+
+    movements_created = []
+    errors = []
+
+    for i in range(len(product_ids)):
+        if product_ids[i] and quantities[i] and from_stores[i] and to_stores[i]:
+            product_id = int(product_ids[i])
+            quantity = float(quantities[i])
+            from_store = from_stores[i]
+            to_store = to_stores[i]
+
+            product = Product.query.get(product_id)
+
+            if from_store == 'main' and product.current_quantity_main < quantity:
+                errors.append(
+                    f"Insufficient stock in Main Store for {product.name}. Available: {product.current_quantity_main}")
+                continue
+            elif from_store == 'sales' and product.current_quantity_sales < quantity:
+                errors.append(
+                    f"Insufficient stock in Sales Store for {product.name}. Available: {product.current_quantity_sales}")
+                continue
+
+            if from_store == to_store:
+                errors.append(f"Source and destination stores cannot be the same for {product.name}")
+                continue
+
+            if from_store == 'main':
+                product.current_quantity_main -= quantity
+            else:
+                product.current_quantity_sales -= quantity
+
+            if to_store == 'main':
+                product.current_quantity_main += quantity
+            else:
+                product.current_quantity_sales += quantity
+
+            movement = StoreMovement(
+                product_id=product_id,
+                quantity=quantity,
+                from_store=from_store,
+                to_store=to_store,
+                movement_date=movement_date,
+                reference=reference,
+                notes=f"Bulk Transfer: {reference}\n{notes}" if reference else notes
+            )
+            db.session.add(movement)
+            movements_created.append(movement)
+
+    if movements_created:
+        db.session.commit()
+        log_action(session['user_id'], 'Bulk Store Movement',
+                   f'Created transfer with {len(movements_created)} items, Reference: {reference}',
+                   request.remote_addr)
+        flash(f'Successfully transferred {len(movements_created)} items!', 'success')
+        if errors:
+            flash(f'Warning: {len(errors)} items had issues: {"; ".join(errors[:3])}', 'warning')
+    else:
+        flash('No items were added to the transfer', 'error')
+
+    return redirect(url_for('movements'))
+
+
+# Price List Management (Product Price List - Legacy)
 @app.route('/price_list')
 @login_required
 def price_list():
@@ -757,85 +986,6 @@ def export_price_list():
     output.seek(0)
     return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                      as_attachment=True, download_name=f'price_list_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx')
-
-
-@app.route('/add_movement_bulk', methods=['POST'])
-@login_required
-def add_movement_bulk():
-    """Handle bulk store movements with multiple items"""
-    movement_date = datetime.strptime(request.form['movement_date'], '%Y-%m-%d')
-    reference = request.form.get('reference', '')
-    notes = request.form.get('notes', '')
-
-    product_ids = request.form.getlist('product_id[]')
-    quantities = request.form.getlist('quantity[]')
-    from_stores = request.form.getlist('from_store[]')
-    to_stores = request.form.getlist('to_store[]')
-
-    movements_created = []
-    errors = []
-
-    for i in range(len(product_ids)):
-        if product_ids[i] and quantities[i] and from_stores[i] and to_stores[i]:
-            product_id = int(product_ids[i])
-            quantity = float(quantities[i])
-            from_store = from_stores[i]
-            to_store = to_stores[i]
-
-            product = Product.query.get(product_id)
-
-            # Check stock in source store
-            if from_store == 'main' and product.current_quantity_main < quantity:
-                errors.append(
-                    f"Insufficient stock in Main Store for {product.name}. Available: {product.current_quantity_main}")
-                continue
-            elif from_store == 'sales' and product.current_quantity_sales < quantity:
-                errors.append(
-                    f"Insufficient stock in Sales Store for {product.name}. Available: {product.current_quantity_sales}")
-                continue
-
-            # Check if source and destination are the same
-            if from_store == to_store:
-                errors.append(f"Source and destination stores cannot be the same for {product.name}")
-                continue
-
-            # Update quantities
-            if from_store == 'main':
-                product.current_quantity_main -= quantity
-            else:
-                product.current_quantity_sales -= quantity
-
-            if to_store == 'main':
-                product.current_quantity_main += quantity
-            else:
-                product.current_quantity_sales += quantity
-
-            # Create movement record
-            movement = StoreMovement(
-                product_id=product_id,
-                quantity=quantity,
-                from_store=from_store,
-                to_store=to_store,
-                movement_date=movement_date,
-                reference=reference,
-                notes=f"Bulk Transfer: {reference}\n{notes}" if reference else notes
-            )
-
-            db.session.add(movement)
-            movements_created.append(movement)
-
-    if movements_created:
-        db.session.commit()
-        log_action(session['user_id'], 'Bulk Store Movement',
-                   f'Created transfer with {len(movements_created)} items, Reference: {reference}',
-                   request.remote_addr)
-        flash(f'Successfully transferred {len(movements_created)} items!', 'success')
-        if errors:
-            flash(f'Warning: {len(errors)} items had issues: {"; ".join(errors[:3])}', 'warning')
-    else:
-        flash('No items were added to the transfer', 'error')
-
-    return redirect(url_for('movements'))
 
 
 @app.route('/reset_price_list', methods=['POST'])
@@ -1326,9 +1476,8 @@ def export_sales():
             'ID': sale.id,
             'Date': sale.sale_date.strftime('%Y-%m-%d %H:%M:%S'),
             'Receipt No': sale.receipt_no or '',
-            'Product Name': sale.product.name,
-            'Sales Description': sale.product.sales_description or sale.product.name,  # Add this
-            'Product SKU': sale.product.sku,
+            'Item Name': sale.price_list_item.item_name if sale.price_list_item else '',
+            'Item Code': sale.price_list_item.item_code if sale.price_list_item else '',
             'Customer': sale.customer.name,
             'Customer Phone': sale.customer.telephone,
             'Quantity': sale.quantity,
@@ -1339,7 +1488,38 @@ def export_sales():
             'Store Source': 'Main Store' if sale.source == 'main_store' else 'Sales Store',
             'Notes': sale.notes or ''
         })
-    # ... rest of the export code
+    df = pd.DataFrame(data)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Sales', index=False)
+        if data:
+            currency_symbol = get_currency_symbol()
+            summary_data = {
+                'Metric': ['Total Sales', 'Total Items Sold', 'Average Order Value', 'Number of Transactions'],
+                'Value': [f"{currency_symbol}{sum(s.total_amount for s in sales):.2f}",
+                          sum(s.quantity for s in sales),
+                          f"{currency_symbol}{(sum(s.total_amount for s in sales) / len(sales)):.2f}" if sales else '0',
+                          len(sales)]
+            }
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+        worksheet = writer.sheets['Sales']
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+    output.seek(0)
+    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                     as_attachment=True,
+                     download_name=f'sales_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx')
+
 
 @app.route('/export_purchases')
 @login_required
@@ -1656,7 +1836,7 @@ def import_sales():
         return redirect(url_for('sales'))
     try:
         df = pd.read_excel(file)
-        required_columns = ['Product SKU', 'Customer Name', 'Quantity', 'Selling Price', 'Store Source']
+        required_columns = ['Item Code', 'Customer Name', 'Quantity', 'Selling Price', 'Store Source']
         missing_columns = [col for col in required_columns if col not in df.columns]
         if missing_columns:
             flash(f'Missing required columns: {", ".join(missing_columns)}', 'error')
@@ -1666,9 +1846,9 @@ def import_sales():
         errors = []
         for index, row in df.iterrows():
             try:
-                product = Product.query.filter_by(sku=str(row['Product SKU']).strip()).first()
-                if not product:
-                    errors.append(f"Row {index + 2}: Product SKU '{row['Product SKU']}' not found")
+                price_item = PriceListItem.query.filter_by(item_code=str(row['Item Code']).strip()).first()
+                if not price_item:
+                    errors.append(f"Row {index + 2}: Item Code '{row['Item Code']}' not found")
                     error_count += 1
                     continue
                 customer = Customer.query.filter_by(name=str(row['Customer Name']).strip()).first()
@@ -1689,16 +1869,6 @@ def import_sales():
                             f"Row {index + 2}: Store Source must be 'main_store' or 'sales_store'. Got '{source}'")
                         error_count += 1
                         continue
-                if source == 'main_store' and product.current_quantity_main < quantity:
-                    errors.append(
-                        f"Row {index + 2}: Insufficient stock for {product.name} in Main Store. Available: {product.current_quantity_main}")
-                    error_count += 1
-                    continue
-                elif source == 'sales_store' and product.current_quantity_sales < quantity:
-                    errors.append(
-                        f"Row {index + 2}: Insufficient stock for {product.name} in Sales Store. Available: {product.current_quantity_sales}")
-                    error_count += 1
-                    continue
                 total_amount = quantity * selling_price
                 sale_date = datetime.now()
                 if 'Sale Date' in df.columns and pd.notna(row['Sale Date']):
@@ -1709,14 +1879,18 @@ def import_sales():
                     row.get('Discount (%)')) else 0
                 discounted_amount = total_amount * (1 - discount / 100)
                 notes = str(row['Notes']) if 'Notes' in df.columns and pd.notna(row.get('Notes')) else ''
-                if source == 'main_store':
-                    product.current_quantity_main -= quantity
-                else:
-                    product.current_quantity_sales -= quantity
-                sale = Sale(product_id=product.id, customer_id=customer.id, quantity=quantity,
-                            selling_price=selling_price,
-                            total_amount=discounted_amount, sale_date=sale_date, source=source, receipt_no=receipt_no,
-                            discount=discount, notes=f"Bulk Import: {notes}" if notes else "Bulk Import")
+                sale = Sale(
+                    price_list_item_id=price_item.id,
+                    customer_id=customer.id,
+                    quantity=quantity,
+                    selling_price=selling_price,
+                    total_amount=discounted_amount,
+                    sale_date=sale_date,
+                    source=source,
+                    receipt_no=receipt_no,
+                    discount=discount,
+                    notes=f"Bulk Import: {notes}" if notes else "Bulk Import"
+                )
                 db.session.add(sale)
                 imported_count += 1
             except Exception as e:
@@ -1783,7 +1957,7 @@ def download_purchase_template():
 def download_sales_template():
     """Download Excel template for bulk sales import"""
     template_data = {
-        'Product SKU': ['SKU001', 'SKU002', 'SKU003'],
+        'Item Code': ['ITEM001', 'ITEM002', 'ITEM003'],
         'Customer Name': ['John Doe', 'Jane Smith', 'Bob Johnson'],
         'Quantity': [5, 3, 2],
         'Selling Price': [15.00, 35.00, 25.00],
@@ -1801,11 +1975,11 @@ def download_sales_template():
         df.to_excel(writer, sheet_name='Sales Template', index=False)
 
         instructions = pd.DataFrame({
-            'Column': ['Product SKU', 'Customer Name', 'Quantity', 'Selling Price', 'Store Source', 'Sale Date',
+            'Column': ['Item Code', 'Customer Name', 'Quantity', 'Selling Price', 'Store Source', 'Sale Date',
                        'Receipt No', 'Discount (%)', 'Notes'],
             'Required': ['Yes', 'Yes', 'Yes', 'Yes', 'Yes', 'No', 'No', 'No', 'No'],
             'Description': [
-                'Must match existing product SKU',
+                'Must match existing item code in Price List',
                 'Must match existing customer name',
                 'Numeric value',
                 'Numeric value (selling price per unit)',
@@ -1824,7 +1998,6 @@ def download_sales_template():
         })
         valid_values.to_excel(writer, sheet_name='Valid Values', index=False)
 
-        # Auto-adjust column widths
         for sheet_name in writer.sheets:
             worksheet = writer.sheets[sheet_name]
             for column in worksheet.columns:
@@ -1840,13 +2013,9 @@ def download_sales_template():
                 worksheet.column_dimensions[column_letter].width = adjusted_width
 
     output.seek(0)
+    return send_file(output, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                     as_attachment=True, download_name='sales_import_template.xlsx')
 
-    return send_file(
-        output,
-        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        as_attachment=True,
-        download_name='sales_import_template.xlsx'
-    )
 
 # Requisitions Management
 @app.route('/requisitions')
@@ -1897,7 +2066,6 @@ def new_requisition():
         db.session.add(requisition)
         db.session.flush()
 
-        # Add items
         product_ids = request.form.getlist('product_id[]')
         quantities = request.form.getlist('quantity[]')
 
@@ -1922,7 +2090,6 @@ def new_requisition():
         flash(f'Requisition {requisition_no} created successfully!', 'success')
         return redirect(url_for('view_requisition', id=requisition.id))
 
-    # GET request - display the form
     products = Product.query.order_by(Product.name).all()
     customers = Customer.query.order_by(Customer.name).all()
     company_settings = get_company_settings()
@@ -1930,6 +2097,8 @@ def new_requisition():
                            products=products,
                            customers=customers,
                            company_settings=company_settings)
+
+
 @app.route('/requisition/<int:id>')
 @login_required
 def view_requisition(id):
@@ -2073,8 +2242,6 @@ def bulk_delete_products():
                 product = Product.query.get(int(product_id))
                 if product:
                     product_name = product.name
-
-                    # Check if product has any related records (optional warning)
                     purchase_count = Purchase.query.filter_by(product_id=product.id).count()
                     sale_count = Sale.query.filter_by(product_id=product.id).count()
                     movement_count = StoreMovement.query.filter_by(product_id=product.id).count()
@@ -2084,7 +2251,6 @@ def bulk_delete_products():
                         errors.append(
                             f"{product_name}: Has {purchase_count} purchases, {sale_count} sales, {movement_count} movements")
 
-                    # Delete the product (cascade will handle related records)
                     db.session.delete(product)
                     deleted_count += 1
                     log_action(session['user_id'], 'Bulk Delete Product',
@@ -2103,7 +2269,7 @@ def bulk_delete_products():
             'success': True,
             'deleted_count': deleted_count,
             'error_count': error_count,
-            'errors': errors[:5]  # Return first 5 errors
+            'errors': errors[:5]
         })
 
     except Exception as e:
@@ -2194,6 +2360,18 @@ def init_db():
 
         db.session.commit()
 
+        # Create default price list items
+        if PriceListItem.query.count() == 0:
+            sample_items = [
+                PriceListItem(item_code='ITEM001', item_name='Sample Product 1', unit_price=10.00),
+                PriceListItem(item_code='ITEM002', item_name='Sample Product 2', unit_price=15.00),
+                PriceListItem(item_code='ITEM003', item_name='Sample Product 3', unit_price=20.00)
+            ]
+            for item in sample_items:
+                db.session.add(item)
+            db.session.commit()
+            print("Default price list items created")
+
         # Create default company settings
         if not CompanySetting.query.first():
             settings = CompanySetting(company_name='My Inventory System',
@@ -2208,3 +2386,7 @@ def init_db():
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
+
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port)
