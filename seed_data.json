@@ -1,0 +1,106 @@
+{
+  "users": [
+    {
+      "username": "admin",
+      "password": "admin123",
+      "role": "admin",
+      "force_create": true
+    },
+    {
+      "username": "accountant",
+      "password": "accountant123",
+      "role": "accountant",
+      "force_create": true
+    },
+    {
+      "username": "inventory",
+      "password": "inventory123",
+      "role": "inventory",
+      "force_create": true
+    }
+  ],
+  "company_settings": {
+    "company_name": "My Inventory System",
+    "company_address": "123 Business Street\nCity, State 12345",
+    "company_phone": "+1 (555) 123-4567",
+    "company_email": "info@mycompany.com",
+    "currency_symbol": "$",
+    "date_format": "%Y-%m-%d"
+  },
+  "price_list_items": [
+    {
+      "item_code": "ITEM001",
+      "item_name": "Sample Product 1",
+      "description": "High quality sample product",
+      "unit_price": 10.00,
+      "is_active": true
+    },
+    {
+      "item_code": "ITEM002",
+      "item_name": "Sample Product 2",
+      "description": "Premium sample product",
+      "unit_price": 15.00,
+      "is_active": true
+    },
+    {
+      "item_code": "ITEM003",
+      "item_name": "Sample Product 3",
+      "description": "Economy sample product",
+      "unit_price": 20.00,
+      "is_active": true
+    }
+  ],
+  "sample_products": [
+    {
+      "name": "Laptop Computer",
+      "sku": "LAP001",
+      "unit_price": 750.00,
+      "description": "High-performance laptop",
+      "sales_description": "Best for business use",
+      "current_quantity_main": 50,
+      "current_quantity_sales": 25
+    },
+    {
+      "name": "Wireless Mouse",
+      "sku": "MOU001",
+      "unit_price": 25.00,
+      "description": "Ergonomic wireless mouse",
+      "sales_description": "Wireless optical mouse",
+      "current_quantity_main": 200,
+      "current_quantity_sales": 100
+    },
+    {
+      "name": "USB Cable",
+      "sku": "USB001",
+      "unit_price": 5.00,
+      "description": "USB 3.0 Cable",
+      "sales_description": "Fast charging cable",
+      "current_quantity_main": 500,
+      "current_quantity_sales": 250
+    }
+  ],
+  "sample_suppliers": [
+    {
+      "name": "Tech Supply Co.",
+      "telephone": "+1 (555) 111-2222",
+      "address": "123 Supplier Street, City, State"
+    },
+    {
+      "name": "Global Distributors",
+      "telephone": "+1 (555) 333-4444",
+      "address": "456 Distribution Ave, City, State"
+    }
+  ],
+  "sample_customers": [
+    {
+      "name": "ABC Corporation",
+      "telephone": "+1 (555) 555-6666",
+      "address": "789 Corporate Blvd, City, State"
+    },
+    {
+      "name": "XYZ Retail Store",
+      "telephone": "+1 (555) 777-8888",
+      "address": "321 Retail Row, City, State"
+    }
+  ]
+}

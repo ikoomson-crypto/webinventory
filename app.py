@@ -12,6 +12,8 @@ import io
 from flask import send_file, make_response
 from sqlalchemy.pool import NullPool
 from flask_migrate import Migrate
+from seed_loader import load_seed_data
+from seed_loader import load_seed_data, ensure_admin_exists
 
 # Create Flask app FIRST
 app = Flask(__name__)
@@ -2239,62 +2241,130 @@ def format_currency(value, symbol='$'):
         return f"{symbol}0.00"
 
 
-# Initialize database
+# ============= INITIALIZATION =============
+
+def load_seed_data_from_json():
+    """Load seed data from JSON file"""
+    import json
+
+    seed_file = os.path.join(os.path.dirname(__file__), 'seed_data.json')
+
+    if not os.path.exists(seed_file):
+        print("⚠️  No seed_data.json found, skipping seed data loading")
+        return
+
+    try:
+        with open(seed_file, 'r') as f:
+            data = json.load(f)
+
+        print("📦 Loading seed data...")
+
+        # Create users
+        if 'users' in data:
+            for user_data in data['users']:
+                existing_user = User.query.filter_by(username=user_data['username']).first()
+                if not existing_user:
+                    user = User(
+                        username=user_data['username'],
+                        password=user_data['password'],
+                        role=user_data['role']
+                    )
+                    db.session.add(user)
+                    print(f"✅ Created user: {user_data['username']} (role: {user_data['role']})")
+                elif user_data.get('force_create', False):
+                    # Update existing user if force_create is true
+                    existing_user.password = user_data['password']
+                    existing_user.role = user_data['role']
+                    print(f"🔄 Updated user: {user_data['username']}")
+
+        # Create company settings if none exist
+        if 'company_settings' in data and CompanySetting.query.count() == 0:
+            settings = CompanySetting(**data['company_settings'])
+            db.session.add(settings)
+            print("✅ Created company settings")
+
+        # Create price list items
+        if 'price_list_items' in data:
+            for item_data in data['price_list_items']:
+                existing = PriceListItem.query.filter_by(item_code=item_data['item_code']).first()
+                if not existing:
+                    item = PriceListItem(**item_data)
+                    db.session.add(item)
+                    print(f"✅ Added price list item: {item_data['item_code']} - {item_data['item_name']}")
+
+        # Create sample products (only if no products exist)
+        if 'sample_products' in data and Product.query.count() == 0:
+            for product_data in data['sample_products']:
+                product = Product(**product_data)
+                db.session.add(product)
+                print(f"✅ Added product: {product_data['name']} (SKU: {product_data['sku']})")
+
+        # Create sample suppliers (only if no suppliers exist)
+        if 'sample_suppliers' in data and Supplier.query.count() == 0:
+            for supplier_data in data['sample_suppliers']:
+                supplier = Supplier(**supplier_data)
+                db.session.add(supplier)
+                print(f"✅ Added supplier: {supplier_data['name']}")
+
+        # Create sample customers (only if no customers exist)
+        if 'sample_customers' in data and Customer.query.count() == 0:
+            for customer_data in data['sample_customers']:
+                customer = Customer(**customer_data)
+                db.session.add(customer)
+                print(f"✅ Added customer: {customer_data['name']}")
+
+        db.session.commit()
+        print("🎉 Seed data loaded successfully!")
+
+    except Exception as e:
+        print(f"❌ Error loading seed data: {e}")
+        db.session.rollback()
+
+
 def init_db():
+    """Initialize database with tables and seed data"""
     with app.app_context():
         # Create all tables
         db.create_all()
-        print("Database tables created successfully")
+        print("✅ Database tables created successfully")
 
         # Run SQLite-specific upgrades only if using SQLite (local development)
         if not os.environ.get('DATABASE_URL'):
             upgrade_database()
-            print("SQLite upgrades completed")
+            print("✅ SQLite upgrades completed")
 
-        # Create default users
+        # Load seed data from JSON file
+        load_seed_data_from_json()
+
+        # Final check - ensure at least admin exists (backup)
         if not User.query.filter_by(username='admin').first():
             admin = User(username='admin', password='admin123', role='admin')
             db.session.add(admin)
-            print("Default admin created: username='admin', password='admin123'")
+            db.session.commit()
+            print("✅ Created default admin user (fallback)")
 
         if not User.query.filter_by(username='accountant').first():
             accountant = User(username='accountant', password='accountant123', role='accountant')
             db.session.add(accountant)
-            print("Default accountant created: username='accountant', password='accountant123'")
+            db.session.commit()
+            print("✅ Created default accountant user (fallback)")
 
         if not User.query.filter_by(username='inventory').first():
             inventory = User(username='inventory', password='inventory123', role='inventory')
             db.session.add(inventory)
-            print("Default inventory user created: username='inventory', password='inventory123'")
-
-        db.session.commit()
-
-        # Create default price list items
-        if PriceListItem.query.count() == 0:
-            sample_items = [
-                PriceListItem(item_code='ITEM001', item_name='Sample Product 1', unit_price=10.00),
-                PriceListItem(item_code='ITEM002', item_name='Sample Product 2', unit_price=15.00),
-                PriceListItem(item_code='ITEM003', item_name='Sample Product 3', unit_price=20.00)
-            ]
-            for item in sample_items:
-                db.session.add(item)
             db.session.commit()
-            print("Default price list items created")
+            print("✅ Created default inventory user (fallback)")
 
-        # Create default company settings
-        if CompanySetting.query.count() == 0:
-            settings = CompanySetting(
-                company_name='My Inventory System',
-                company_address='123 Business Street\nCity, State 12345',
-                company_phone='+1 (555) 123-4567',
-                company_email='info@mycompany.com',
-                currency_symbol='$'
-            )
-            db.session.add(settings)
-            db.session.commit()
-            print("Default company settings created")
+        print("🎉 Database initialization complete!")
 
 
+# Run initialization
+if __name__ == '__main__':
+    init_db()
+    # Use debug=False for production, but keep as environment variable
+    debug_mode = os.environ.get('FLASK_DEBUG', 'False').lower() == 'true'
+    port = int(os.environ.get('PORT', 5001))
+    app.run(debug=debug_mode, host='0.0.0.0', port=port)
 # Run initialization
 if __name__ == '__main__':
     init_db()
