@@ -11,6 +11,9 @@ import pandas as pd
 import io
 from flask import send_file, make_response
 from sqlalchemy.pool import NullPool
+from flask_migrate import Migrate
+
+# Create Flask app FIRST
 app = Flask(__name__)
 
 # ============= CONFIGURATION =============
@@ -43,8 +46,11 @@ app.config['ALLOWED_EXTENSIONS'] = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
 # Create upload folder if it doesn't exist
 os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
 
-# Initialize database
+# Initialize database AFTER app is created
 db = SQLAlchemy(app)
+
+# Initialize Flask-Migrate AFTER db is created
+migrate = Migrate(app, db)
 
 
 # ============= DATABASE MODELS =============
@@ -210,23 +216,42 @@ def allowed_file(filename):
 
 
 def get_company_settings():
-    settings = CompanySetting.query.first()
-    if not settings:
-        settings = CompanySetting()
-        db.session.add(settings)
-        db.session.commit()
-    return settings
+    """Get company settings, create default if not exists"""
+    try:
+        settings = CompanySetting.query.first()
+        if not settings:
+            settings = CompanySetting()
+            db.session.add(settings)
+            db.session.commit()
+        return settings
+    except Exception as e:
+        # Handle case when table doesn't exist yet
+        print(f"Error getting company settings: {e}")
+        # Return a default settings object
+        return CompanySetting(
+            company_name='My Company',
+            currency_symbol='$'
+        )
 
 
 def get_currency_symbol():
-    settings = get_company_settings()
-    return settings.currency_symbol if settings else '$'
+    """Return the currency symbol from settings or default"""
+    try:
+        settings = get_company_settings()
+        return settings.currency_symbol if settings and settings.currency_symbol else '$'
+    except Exception as e:
+        print(f"Error getting currency symbol: {e}")
+        return '$'  # Default fallback
 
 
 def log_action(user_id, action, details='', ip_address=''):
-    log = SystemLog(user_id=user_id, action=action, details=details, ip_address=ip_address)
-    db.session.add(log)
-    db.session.commit()
+    try:
+        log = SystemLog(user_id=user_id, action=action, details=details, ip_address=ip_address)
+        db.session.add(log)
+        db.session.commit()
+    except Exception as e:
+        print(f"Error logging action: {e}")
+        db.session.rollback()
 
 
 def login_required(f):
@@ -236,7 +261,6 @@ def login_required(f):
             flash('Please login first', 'error')
             return redirect(url_for('login'))
         return f(*args, **kwargs)
-
     return decorated_function
 
 
@@ -251,7 +275,6 @@ def admin_required(f):
             flash('Admin access required', 'error')
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
-
     return decorated_function
 
 
@@ -1438,18 +1461,16 @@ def system_logs():
 @login_required
 @admin_required
 def backup_database():
-    import shutil
-    backup_name = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-    shutil.copy('inventory.db', backup_name)
-    flash(f'Database backed up as {backup_name}', 'success')
+    # Only works for SQLite
+    if not os.environ.get('DATABASE_URL'):
+        import shutil
+        backup_name = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+        shutil.copy('inventory.db', backup_name)
+        flash(f'Database backed up as {backup_name}', 'success')
+    else:
+        flash('Backup is only available for SQLite database', 'warning')
     return redirect(url_for('admin_settings'))
 
-
-# Export Functions (abbreviated - keep your existing export functions)
-# ... (your existing export functions remain the same)
-
-# Import Functions (abbreviated - keep your existing import functions)
-# ... (your existing import functions remain the same)
 
 # Download Templates
 @app.route('/download_purchase_template')
@@ -1557,117 +1578,7 @@ def download_sales_template():
                      as_attachment=True, download_name='sales_import_template.xlsx')
 
 
-# Requisitions Management (abbreviated - keep your existing requisition routes)
-# ... (your existing requisition routes remain the same)
-
-# Serve uploaded files
-@app.route('/uploads/<filename>')
-def uploaded_file(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
-
-
-# Context processors
-@app.context_processor
-def inject_company_settings():
-    settings = get_company_settings()
-    logo_url = url_for('uploaded_file', filename=settings.logo_path) if settings.logo_path else None
-    return {'company_settings': settings, 'logo_url': logo_url,
-            'currency_symbol': settings.currency_symbol if settings else '$'}
-
-
-@app.context_processor
-def inject_now():
-    return {'now': datetime.now()}
-
-
-@app.context_processor
-def inject_filters():
-    return {'format_number': lambda x: f"{x:,.2f}" if isinstance(x, float) else f"{x:,}",
-            'format_currency': lambda x, s=None: f"{s or '$'}{x:,.2f}" if x else f"{s or '$'}0.00"}
-
-
-# Template filters
-@app.template_filter('format_number')
-def format_number(value):
-    if value is None:
-        return '0'
-    try:
-        if isinstance(value, float):
-            return f"{value:,.2f}"
-        else:
-            return f"{value:,}"
-    except (ValueError, TypeError):
-        return str(value)
-
-
-@app.template_filter('format_currency')
-def format_currency(value, symbol='$'):
-    if value is None:
-        return f"{symbol}0.00"
-    try:
-        return f"{symbol}{value:,.2f}"
-    except (ValueError, TypeError):
-        return f"{symbol}0.00"
-
-
-# Initialize database
-def init_db():
-    with app.app_context():
-        # Create all tables
-        db.create_all()
-        print("Database tables created successfully")
-
-        # Run SQLite-specific upgrades only if using SQLite (local development)
-        if not os.environ.get('DATABASE_URL'):
-            upgrade_database()
-            print("SQLite upgrades completed")
-
-        # Create default users
-        if not User.query.filter_by(username='admin').first():
-            admin = User(username='admin', password='admin123', role='admin')
-            db.session.add(admin)
-            print("Default admin created: username='admin', password='admin123'")
-
-        if not User.query.filter_by(username='accountant').first():
-            accountant = User(username='accountant', password='accountant123', role='accountant')
-            db.session.add(accountant)
-            print("Default accountant created: username='accountant', password='accountant123'")
-
-        if not User.query.filter_by(username='inventory').first():
-            inventory = User(username='inventory', password='inventory123', role='inventory')
-            db.session.add(inventory)
-            print("Default inventory user created: username='inventory', password='inventory123'")
-
-        db.session.commit()
-
-        # Create default price list items
-        if PriceListItem.query.count() == 0:
-            sample_items = [
-                PriceListItem(item_code='ITEM001', item_name='Sample Product 1', unit_price=10.00),
-                PriceListItem(item_code='ITEM002', item_name='Sample Product 2', unit_price=15.00),
-                PriceListItem(item_code='ITEM003', item_name='Sample Product 3', unit_price=20.00)
-            ]
-            for item in sample_items:
-                db.session.add(item)
-            db.session.commit()
-            print("Default price list items created")
-
-        # Create default company settings
-        if not CompanySetting.query.first():
-            settings = CompanySetting(
-                company_name='My Inventory System',
-                company_address='123 Business Street\nCity, State 12345',
-                company_phone='+1 (555) 123-4567',
-                company_email='info@mycompany.com',
-                currency_symbol='$'
-            )
-            db.session.add(settings)
-            db.session.commit()
-            print("Default company settings created")
-
-
-# ============= REQUISITIONS MANAGEMENT =============
-
+# Requisitions Management
 @app.route('/requisitions')
 @login_required
 def requisitions():
@@ -2276,6 +2187,113 @@ def export_movements():
         as_attachment=True,
         download_name=f'movements_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
     )
+
+
+# Serve uploaded files
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+
+# Context processors
+@app.context_processor
+def inject_company_settings():
+    settings = get_company_settings()
+    logo_url = url_for('uploaded_file', filename=settings.logo_path) if settings.logo_path else None
+    return {'company_settings': settings, 'logo_url': logo_url,
+            'currency_symbol': settings.currency_symbol if settings else '$'}
+
+
+@app.context_processor
+def inject_now():
+    return {'now': datetime.now()}
+
+
+@app.context_processor
+def inject_filters():
+    return {'format_number': lambda x: f"{x:,.2f}" if isinstance(x, float) else f"{x:,}",
+            'format_currency': lambda x, s=None: f"{s or '$'}{x:,.2f}" if x else f"{s or '$'}0.00"}
+
+
+# Template filters
+@app.template_filter('format_number')
+def format_number(value):
+    if value is None:
+        return '0'
+    try:
+        if isinstance(value, float):
+            return f"{value:,.2f}"
+        else:
+            return f"{value:,}"
+    except (ValueError, TypeError):
+        return str(value)
+
+
+@app.template_filter('format_currency')
+def format_currency(value, symbol='$'):
+    if value is None:
+        return f"{symbol}0.00"
+    try:
+        return f"{symbol}{value:,.2f}"
+    except (ValueError, TypeError):
+        return f"{symbol}0.00"
+
+
+# Initialize database
+def init_db():
+    with app.app_context():
+        # Create all tables
+        db.create_all()
+        print("Database tables created successfully")
+
+        # Run SQLite-specific upgrades only if using SQLite (local development)
+        if not os.environ.get('DATABASE_URL'):
+            upgrade_database()
+            print("SQLite upgrades completed")
+
+        # Create default users
+        if not User.query.filter_by(username='admin').first():
+            admin = User(username='admin', password='admin123', role='admin')
+            db.session.add(admin)
+            print("Default admin created: username='admin', password='admin123'")
+
+        if not User.query.filter_by(username='accountant').first():
+            accountant = User(username='accountant', password='accountant123', role='accountant')
+            db.session.add(accountant)
+            print("Default accountant created: username='accountant', password='accountant123'")
+
+        if not User.query.filter_by(username='inventory').first():
+            inventory = User(username='inventory', password='inventory123', role='inventory')
+            db.session.add(inventory)
+            print("Default inventory user created: username='inventory', password='inventory123'")
+
+        db.session.commit()
+
+        # Create default price list items
+        if PriceListItem.query.count() == 0:
+            sample_items = [
+                PriceListItem(item_code='ITEM001', item_name='Sample Product 1', unit_price=10.00),
+                PriceListItem(item_code='ITEM002', item_name='Sample Product 2', unit_price=15.00),
+                PriceListItem(item_code='ITEM003', item_name='Sample Product 3', unit_price=20.00)
+            ]
+            for item in sample_items:
+                db.session.add(item)
+            db.session.commit()
+            print("Default price list items created")
+
+        # Create default company settings
+        if CompanySetting.query.count() == 0:
+            settings = CompanySetting(
+                company_name='My Inventory System',
+                company_address='123 Business Street\nCity, State 12345',
+                company_phone='+1 (555) 123-4567',
+                company_email='info@mycompany.com',
+                currency_symbol='$'
+            )
+            db.session.add(settings)
+            db.session.commit()
+            print("Default company settings created")
+
 
 # Run initialization
 if __name__ == '__main__':
