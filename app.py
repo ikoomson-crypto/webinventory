@@ -1936,6 +1936,347 @@ def print_requisition(id):
                            company_settings=company_settings,
                            now=datetime.now())
 
+
+# ============= EXPORT FUNCTIONS =============
+
+@app.route('/export_products')
+@login_required
+def export_products():
+    """Export products to Excel"""
+    products = Product.query.all()
+    data = []
+    for p in products:
+        data.append({
+            'ID': p.id,
+            'SKU': p.sku,
+            'Name': p.name,
+            'Description': p.description or '',
+            'Sales Description': p.sales_description or '',
+            'Unit Price': p.unit_price,
+            'Main Store Quantity': p.current_quantity_main,
+            'Sales Store Quantity': p.current_quantity_sales,
+            'Total Quantity': p.current_quantity_main + p.current_quantity_sales,
+            'Total Value': (p.current_quantity_main + p.current_quantity_sales) * p.unit_price,
+            'Created Date': p.created_at.strftime('%Y-%m-%d %H:%M:%S') if p.created_at else ''
+        })
+
+    df = pd.DataFrame(data)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Products', index=False)
+        worksheet = writer.sheets['Products']
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+
+    output.seek(0)
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'products_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+    )
+
+
+@app.route('/export_sales')
+@login_required
+def export_sales():
+    """Export sales to Excel"""
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+
+    query = Sale.query
+    if start_date:
+        query = query.filter(Sale.sale_date >= datetime.strptime(start_date, '%Y-%m-%d'))
+    if end_date:
+        query = query.filter(Sale.sale_date <= datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1))
+
+    sales = query.order_by(Sale.sale_date.desc()).all()
+    data = []
+    for sale in sales:
+        data.append({
+            'ID': sale.id,
+            'Date': sale.sale_date.strftime('%Y-%m-%d %H:%M:%S'),
+            'Receipt No': sale.receipt_no or '',
+            'Item Name': sale.price_list_item.item_name if sale.price_list_item else '',
+            'Item Code': sale.price_list_item.item_code if sale.price_list_item else '',
+            'Customer': sale.customer.name,
+            'Customer Phone': sale.customer.telephone,
+            'Quantity': sale.quantity,
+            'Unit Price': sale.selling_price,
+            'Subtotal': sale.quantity * sale.selling_price,
+            'Discount (%)': sale.discount or 0,
+            'Total Amount': sale.total_amount,
+            'Store Source': 'Main Store' if sale.source == 'main_store' else 'Sales Store',
+            'Notes': sale.notes or ''
+        })
+
+    df = pd.DataFrame(data)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Sales', index=False)
+
+        if data:
+            currency_symbol = get_currency_symbol()
+            summary_data = {
+                'Metric': ['Total Sales', 'Total Items Sold', 'Average Order Value', 'Number of Transactions'],
+                'Value': [
+                    f"{currency_symbol}{sum(s.total_amount for s in sales):.2f}",
+                    sum(s.quantity for s in sales),
+                    f"{currency_symbol}{(sum(s.total_amount for s in sales) / len(sales)):.2f}" if sales else '0',
+                    len(sales)
+                ]
+            }
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+
+        worksheet = writer.sheets['Sales']
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+
+    output.seek(0)
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'sales_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+    )
+
+
+@app.route('/export_purchases')
+@login_required
+def export_purchases():
+    """Export purchases to Excel"""
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+
+    query = Purchase.query
+    if start_date:
+        query = query.filter(Purchase.purchase_date >= datetime.strptime(start_date, '%Y-%m-%d'))
+    if end_date:
+        query = query.filter(Purchase.purchase_date <= datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1))
+
+    purchases = query.order_by(Purchase.purchase_date.desc()).all()
+    data = []
+    for purchase in purchases:
+        data.append({
+            'ID': purchase.id,
+            'Date': purchase.purchase_date.strftime('%Y-%m-%d %H:%M:%S'),
+            'Reference No': purchase.reference_no or '',
+            'Product': purchase.product.name,
+            'Product SKU': purchase.product.sku,
+            'Supplier': purchase.supplier.name,
+            'Supplier Phone': purchase.supplier.telephone,
+            'Quantity': purchase.quantity,
+            'Cost Price': purchase.cost_price,
+            'Total Cost': purchase.total_cost,
+            'Notes': purchase.notes or ''
+        })
+
+    df = pd.DataFrame(data)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Purchases', index=False)
+
+        if data:
+            currency_symbol = get_currency_symbol()
+            summary_data = {
+                'Metric': ['Total Purchases', 'Total Items Purchased', 'Average Purchase Value',
+                           'Number of Transactions'],
+                'Value': [
+                    f"{currency_symbol}{sum(p.total_cost for p in purchases):.2f}",
+                    sum(p.quantity for p in purchases),
+                    f"{currency_symbol}{(sum(p.total_cost for p in purchases) / len(purchases)):.2f}" if purchases else '0',
+                    len(purchases)
+                ]
+            }
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+
+        worksheet = writer.sheets['Purchases']
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+
+    output.seek(0)
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'purchases_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+    )
+
+
+@app.route('/export_suppliers')
+@login_required
+def export_suppliers():
+    """Export suppliers to Excel"""
+    suppliers = Supplier.query.all()
+    data = []
+    for s in suppliers:
+        data.append({
+            'ID': s.id,
+            'Name': s.name,
+            'Telephone': s.telephone,
+            'Address': s.address,
+            'Created Date': s.created_at.strftime('%Y-%m-%d %H:%M:%S') if s.created_at else ''
+        })
+
+    df = pd.DataFrame(data)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Suppliers', index=False)
+        worksheet = writer.sheets['Suppliers']
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+
+    output.seek(0)
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'suppliers_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+    )
+
+
+@app.route('/export_customers')
+@login_required
+def export_customers():
+    """Export customers to Excel"""
+    customers = Customer.query.all()
+    data = []
+    for c in customers:
+        data.append({
+            'ID': c.id,
+            'Name': c.name,
+            'Telephone': c.telephone,
+            'Address': c.address,
+            'Created Date': c.created_at.strftime('%Y-%m-%d %H:%M:%S') if c.created_at else ''
+        })
+
+    df = pd.DataFrame(data)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Customers', index=False)
+        worksheet = writer.sheets['Customers']
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+
+    output.seek(0)
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'customers_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+    )
+
+
+@app.route('/export_movements')
+@login_required
+def export_movements():
+    """Export store movements to Excel"""
+    start_date = request.args.get('start_date')
+    end_date = request.args.get('end_date')
+
+    query = StoreMovement.query
+    if start_date:
+        query = query.filter(StoreMovement.movement_date >= datetime.strptime(start_date, '%Y-%m-%d'))
+    if end_date:
+        query = query.filter(StoreMovement.movement_date <= datetime.strptime(end_date, '%Y-%m-%d') + timedelta(days=1))
+
+    movements = query.order_by(StoreMovement.movement_date.desc()).all()
+    data = []
+    for movement in movements:
+        data.append({
+            'Date': movement.movement_date.strftime('%Y-%m-%d %H:%M:%S'),
+            'Product': movement.product.name,
+            'Product SKU': movement.product.sku,
+            'Quantity': movement.quantity,
+            'From Store': 'Main Store' if movement.from_store == 'main' else 'Sales Store',
+            'To Store': 'Main Store' if movement.to_store == 'main' else 'Sales Store',
+            'Reference': movement.reference or '',
+            'Notes': movement.notes or ''
+        })
+
+    df = pd.DataFrame(data)
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, sheet_name='Store Movements', index=False)
+
+        if data:
+            main_to_sales = sum(m.quantity for m in movements if m.from_store == 'main' and m.to_store == 'sales')
+            sales_to_main = sum(m.quantity for m in movements if m.from_store == 'sales' and m.to_store == 'main')
+            summary_data = {
+                'Metric': ['Main → Sales Store', 'Sales → Main Store', 'Net Movement', 'Total Movements'],
+                'Value': [main_to_sales, sales_to_main, main_to_sales - sales_to_main, len(movements)]
+            }
+            summary_df = pd.DataFrame(summary_data)
+            summary_df.to_excel(writer, sheet_name='Summary', index=False)
+
+        worksheet = writer.sheets['Store Movements']
+        for column in worksheet.columns:
+            max_length = 0
+            column_letter = column[0].column_letter
+            for cell in column:
+                try:
+                    if len(str(cell.value)) > max_length:
+                        max_length = len(str(cell.value))
+                except:
+                    pass
+            adjusted_width = min(max_length + 2, 50)
+            worksheet.column_dimensions[column_letter].width = adjusted_width
+
+    output.seek(0)
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=f'movements_export_{datetime.now().strftime("%Y%m%d_%H%M%S")}.xlsx'
+    )
+
 # Run initialization
 if __name__ == '__main__':
     init_db()
